@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>電卓アプリ</title>
+    <style>
+        /* 既存のスタイル */
+    </style>
+</head>
+<body>
+    <h1>電卓アプリ</h1>
+    <input type="text" id="display" disabled>
+    <div>
+        <button onclick="append('7')">7</button>
+        <button onclick="append('8')">8</button>
+        <button onclick="append('9')">9</button>
+        <button onclick="calculate()">=</button>
+    </div>
+    <div>
+        <button onclick="append('4')">4</button>
+        <button onclick="append('5')">5</button>
+        <button onclick="append('6')">6</button>
+        <button onclick="clearDisplay()">C</button>
+    </div>
+    <div>
+        <button onclick="append('1')">1</button>
+        <button onclick="append('2')">2</button>
+        <button onclick="append('3')">3</button>
+        <button onclick="saveResult()">保存</button>
+    </div>
+    <div>
+        <button onclick="append('+')">+</button>
+        <button onclick="append('-')">-</button>
+        <button onclick="append('*')">*</button>
+        <button onclick="append('/')">/</button>
+    </div>
+
+    <script>
+        let display = document.getElementById('display');
+        let currentInput = '';
+        let operator = '';
+
+        function append(value) {
+            if (value === '+' || value === '-' || value === '*' || value === '/') {
+                operator = value;
+                currentInput += value;
+            } else {
+                currentInput += value;
+                display.value = currentInput;
+            }
+        }
+
+        function calculate() {
+            let result = eval(currentInput);
+            display.value = result;
+            currentInput = result.toString();
+        }
+
+        function clearDisplay() {
+            currentInput = '';
+            operator = '';
+            display.value = '';
+        }
+
+        function saveResult() {
+            // 保存機能を実装する
+            localStorage.setItem('calculationResult', display.value);
+            alert('計算結果が保存されました');
+        }
+    </script>
+</body>
+</html>
