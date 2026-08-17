@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>キムチの嫌いな俺 — 劇伴制作管理</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <script>
+(function () {
+  var key = "kimchi-dashboard-theme";
+  var saved = localStorage.getItem(key);
+  var theme = saved === "light" || saved === "dark"
+    ? saved
+    : (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+  document.documentElement.setAttribute("data-theme", theme);
+})();
+  </script>
+
+  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/buttons.css">
+</head>
+<body>
+  <div class="dashboard-shell">
+    <header class="dashboard-header">
+      <div class="header-brand">
+        <div class="led-indicator" aria-hidden="true"></div>
+        <div>
+          <p class="text-muted font-mono text-small header-subtitle">WorksDB · Production Control</p>
+          <h1 class="dashboard-title">WorksDB 制作管理ダッシュボード</h1>
+          <p class="text-muted text-small header-tagline">全案件一括・個別制作管理システム</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button type="button" id="btn-header-all-schedule" class="studio-btn studio-btn--cyan" style="gap: 5px;" title="全件統合スケジュールボードを表示・全画面表示">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          全件スケジュール
+        </button>
+        <button type="button" id="registry-open-btn" class="studio-btn studio-btn--ghost registry-open-btn">▦ DB一覧</button>
+        <div class="theme-toggle" role="group" aria-label="表示モード">
+          <button type="button" id="theme-dark-btn" class="theme-toggle-btn" data-theme="dark" aria-pressed="true">🌙 ダーク</button>
+          <button type="button" id="theme-light-btn" class="theme-toggle-btn" data-theme="light" aria-pressed="false">☀ ライト</button>
+        </div>
+        <button type="button" id="ai-key-settings-btn" class="studio-btn studio-btn--ghost" title="Gemini APIキーの上書き（通常は不要）" hidden>✦ AI設定</button>
+      </div>
+    </header>
+
+    <main class="dashboard-grid">
+      <div class="layout-zone dashboard-area-countdown">
+        <section class="studio-panel studio-panel--amber">
+          <div class="studio-panel-header">
+            <h2>デッドライン・カウントダウン</h2>
+            <span class="panel-badge">CRITICAL</span>
+          </div>
+          <div class="studio-panel-body">
+            <div class="countdown-layout">
+              <div id="countdown-hero" class="countdown-hero">
+                <p class="countdown-label">完パケ・納品まで / 全体進捗</p>
+                <div class="countdown-row">
+                  <div class="countdown-metric">
+                    <span id="countdown-digits" class="countdown-digits">--</span>
+                    <span class="countdown-unit">日</span>
+                  </div>
+                  <span class="countdown-divider" aria-hidden="true"></span>
+                  <div class="countdown-metric">
+                    <span id="countdown-overall-pct" class="countdown-digits countdown-digits--pct">--</span>
+                    <span class="countdown-unit">%</span>
+                  </div>
+                </div>
+                <p id="countdown-deadline-text" class="countdown-deadline">締切日: 未設定</p>
+              </div>
+              <div class="countdown-side">
+                <p id="broadcast-info-label" class="text-muted text-small" style="margin:0; font-weight:600;"></p>
+                <div style="margin-top:0.35rem;">
+                  <button type="button" id="btn-edit-deadline" class="studio-btn studio-btn--ghost" style="padding: 2px 8px; font-size: 0.72rem;">📅 締切日設定</button>
+                </div>
+                <p class="text-muted text-small" style="margin:0.5rem 0 0.2rem;">直近マイルストーン</p>
+                <ul id="milestone-list" class="milestone-list"></ul>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- TRACK LIST & PROGRESS SECTION -->
+      <div class="layout-zone dashboard-area-tracks">
+        <p class="layout-zone-label">Tracks</p>
+        <section class="studio-panel studio-panel--cyan">
+          <div class="studio-panel-header">
+            <h2>楽曲進捗管理</h2>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <a href="#" id="open-sheet-link" target="_blank" rel="noopener" class="studio-btn studio-btn--ghost" style="padding: 2px 8px; font-size: 0.72rem;">↗ スプレッドシート</a>
+              <button type="button" id="sheet-settings-btn" class="studio-btn studio-btn--ghost" title="スプレッドシート接続を設定" style="padding: 2px 8px; font-size: 0.72rem;">⚙ シート設定</button>
+              <button type="button" id="reload-sheet-btn" class="studio-btn studio-btn--ghost" title="シートから再読み込み" style="padding: 2px 8px; font-size: 0.72rem;">↻ 再読み込み</button>
+              <button type="button" id="add-track-btn" class="studio-btn studio-btn--cyan" style="padding: 2px 8px; font-size: 0.72rem;">＋ 楽曲追加</button>
+              <span id="msheet-badge" class="panel-badge">PROGRESS</span>
+            </div>
+          </div>
+          <div class="studio-panel-body">
+            <div class="status-summary">
+              <div class="status-summary-toolbar">
+                <span class="status-summary-title">進捗ステータス集計</span>
+                <div class="status-filter-actions">
+                  <button type="button" class="status-filter-btn is-active" data-status-filter="__all__">すべて</button>
+                  <button type="button" class="status-filter-btn" data-status-filter="作曲">作曲</button>
+                  <button type="button" class="status-filter-btn" data-status-filter="修正">修正</button>
+                  <button type="button" class="status-filter-btn" data-status-filter="OK">OK</button>
+                </div>
+              </div>
+              <div class="status-breakdown-root">
+                <div id="status-breakdown" class="status-breakdown"></div>
+              </div>
+            </div>
+            <div id="track-list" class="track-table-container"></div>
+          </div>
+        </section>
+      </div>
+
+      <div class="layout-zone dashboard-area-gantt">
+        <p class="layout-zone-label">Schedule</p>
+        <section class="studio-panel studio-panel--rose">
+          <div class="studio-panel-header">
+            <h2 id="schedule-board-panel-title">制作スケジュール</h2>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <button type="button" id="tab-btn-gantt" class="studio-btn studio-btn--ghost is-active" style="padding: 2px 8px; font-size: 0.72rem;">ガントチャート</button>
+              <button type="button" id="tab-btn-board" class="studio-btn studio-btn--cyan" style="padding: 2px 8px; font-size: 0.72rem;">一括ボード</button>
+              <button type="button" id="btn-show-all-schedule-iframe" class="studio-btn studio-btn--ghost" style="padding: 2px 8px; font-size: 0.72rem;">全件表示</button>
+              <a href="ScheduleBoard.html" id="btn-open-schedule-newtab" target="_blank" class="studio-btn studio-btn--ghost" style="padding: 2px 8px; font-size: 0.72rem;">全画面 ↗</a>
+              <span id="gantt-badge" class="panel-badge">GANTT</span>
+            </div>
+          </div>
+          <div class="studio-panel-body">
+            <div id="view-gantt-container">
+              <div class="msheet-toolbar panel-toolbar">
+                <details class="msheet-help">
+                  <summary>操作ヘルプ</summary>
+                  <p class="msheet-hint">スケジュール表シートから自動読み込み（表示値優先）。曲の行をクリックすると詳細を開きます。今日列はアンバー、完パケ日はローズで強調。</p>
+                </details>
+                <a id="open-schedule-link" class="studio-btn studio-btn--ghost" href="#" target="_blank" rel="noopener">↗ スケジュール表を開く</a>
+              </div>
+              <div id="gantt-wrap" class="gantt-wrap"></div>
+              <p id="gantt-status" class="gantt-status text-muted text-small"></p>
+              <div id="gantt-legend" class="gantt-legend"></div>
+            </div>
+
+            <div id="view-board-container" class="hidden" style="padding-top: 4px;">
+              <div id="native-schedule-board-wrap"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="layout-zone dashboard-area-guidelines" id="guidelines-zone">
+        <p class="layout-zone-label">Reference</p>
+        <section class="studio-panel studio-panel--cyan">
+          <div class="studio-panel-header">
+            <h2>制作メモ・ガイドライン</h2>
+            <span class="panel-badge">MEMO</span>
+          </div>
+          <div class="studio-panel-body">
+            <div id="guidelines-grid" class="guidelines-grid"></div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="dashboard-footer">
+      <span id="footer-status" class="font-mono text-muted text-small">STATUS: SHEET SYNC · Msheet V2 · HTML版</span>
+    </footer>
+  </div>
+
+  <div id="track-detail-overlay" class="track-detail-overlay" hidden>
+    <div class="track-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="track-detail-title">
+      <div class="track-detail-header">
+        <div>
+          <span id="track-detail-code" class="track-detail-code"></span>
+          <h3 id="track-detail-title" class="track-detail-title"></h3>
+        </div>
+        <button type="button" id="track-detail-close" class="track-detail-close" aria-label="閉じる">×</button>
+      </div>
+      <div id="track-detail-body" class="track-detail-body"></div>
+    </div>
+  </div>
+
+  <div id="ai-key-overlay" class="ai-key-overlay" hidden>
+    <div class="ai-key-dialog" role="dialog" aria-modal="true" aria-labelledby="ai-key-dialog-title">
+      <h3 id="ai-key-dialog-title">Gemini API キー設定</h3>
+      <p>
+        Google AI Studio の無料 API キーを保存します（このブラウザの localStorage のみ。HTML ファイルには書き込みません）。
+        <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">キーの取得</a>
+      </p>
+      <label for="ai-key-input">API キー</label>
+      <input type="password" id="ai-key-input" autocomplete="off" spellcheck="false" placeholder="AIza… または AQ.…" />
+      <div class="ai-key-dialog-actions">
+        <button type="button" id="ai-key-clear-btn" class="studio-btn studio-btn--ghost">削除</button>
+        <button type="button" id="ai-key-cancel-btn" class="studio-btn studio-btn--ghost">キャンセル</button>
+        <button type="button" id="ai-key-save-btn" class="studio-btn studio-btn--ai">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-root" class="toast-root" aria-live="polite"></div>
+
+  <section id="registry-shell" class="registry-shell" aria-label="DB管理" hidden>
+    <div class="registry-app">
+      <aside class="registry-sidebar">
+        <div class="registry-brand"><div class="registry-logo">DB</div><div><h2>WorksDB</h2><p>Production database</p></div></div>
+        <nav class="registry-sidebar-nav" aria-label="メインナビゲーション">
+          <p class="registry-nav-label">Workspace</p>
+          <button type="button" class="registry-nav-button is-active"><span>▦</span><strong>すべてのDB</strong></button>
+          <a href="ScheduleBoard.html" class="registry-nav-button"><span>◫</span><strong>全件スケジュール</strong></a>
+          <button type="button" id="master-settings-btn" class="registry-nav-button"><span>◎</span><strong>管理シート接続</strong></button>
+          <button type="button" id="gas-code-btn" class="registry-nav-button"><span>&lt;/&gt;</span><strong>シートをセットアップ</strong></button>
+          <p class="registry-nav-label">Data</p>
+          <button type="button" id="registry-import-btn" class="registry-nav-button"><span>↓</span><strong>読み込み</strong></button>
+          <button type="button" id="registry-export-btn" class="registry-nav-button"><span>↑</span><strong>書き出し</strong></button>
+        </nav>
+        <div class="registry-sidebar-bottom">
+          <div class="theme-toggle" role="group" aria-label="表示モード">
+            <button type="button" class="theme-toggle-btn reg-theme-dark-btn" data-theme="dark" aria-pressed="true">🌙</button>
+            <button type="button" class="theme-toggle-btn reg-theme-light-btn" data-theme="light" aria-pressed="false">☀</button>
+          </div>
+          <button type="button" id="registry-close-btn" class="registry-nav-button" hidden><span>→</span><strong>現在の案件へ</strong></button>
+          <input type="file" id="registry-import-file" accept=".json,application/json" hidden>
+        </div>
+      </aside>
+      <main class="registry-main">
+        <header class="registry-home-header">
+          <div><p class="registry-home-eyebrow">DATABASE HOME</p><h1 class="registry-home-title">案件データベース</h1><p class="registry-home-copy">案件の場所、担当、締切、接続状態をここで確認します。詳細作業は案件を開いてから行います。</p></div>
+          <div style="display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;justify-content:flex-end"><button type="button" id="master-status-btn" class="studio-btn studio-btn--ghost">管理シート: ローカル</button><button type="button" id="registry-add-btn" class="studio-btn studio-btn--amber">＋ 新しいDB</button></div>
+        </header>
+        <section class="registry-stats" aria-label="DB集計">
+          <div class="registry-stat"><span>登録DB</span><strong id="registry-total">0</strong></div>
+          <div class="registry-stat"><span>稼働中</span><strong id="registry-active">0</strong></div>
+          <div class="registry-stat"><span>完了</span><strong id="registry-done">0</strong></div>
+        </section>
+        <div class="registry-toolbar">
+          <input id="registry-search" class="registry-input" type="search" placeholder="DB名・担当・メモを検索">
+          <select id="registry-status-filter" class="registry-select"><option value="all">すべての状態</option><option>稼働中</option><option>準備中</option><option>保留</option><option>完了</option><option>停止</option></select>
+        </div>
+        <section aria-label="登録DB一覧"><div id="registry-grid" class="registry-grid"><div class="registry-empty"><strong>案件一覧を読み込んでいます</strong></div></div></section>
+      </main>
+    </div>
+  </section>
+
+  <dialog id="gas-dialog" class="registry-dialog gas-dialog">
+    <div class="registry-dialog-head"><div><h3>Webアプリ・シート自動作成コード</h3><p class="gas-config-note">案件ごとのGoogleスプレッドシート用</p></div><button type="button" id="gas-dialog-close" class="registry-close" aria-label="閉じる">×</button></div>
+    <div class="gas-dialog-body">
+      <div class="gas-layout">
+        <div class="gas-config">
+          <label class="registry-field"><span>対象DB</span><select id="gas-db-select"></select></label>
+          <label class="registry-field"><span>初期曲数</span><input id="gas-track-count" type="number" min="1" max="50" value="10"></label>
+          <p class="gas-config-note">空のスプレッドシートでは、楽曲進捗管理表・入力規則・書式を自動作成します。既存データがあるシートは上書きしません。</p>
+          <div class="gas-help"><strong>セットアップ手順</strong><ol><li>空の案件スプレッドシートを開く</li><li>「拡張機能」→「Apps Script」</li><li>右側のコードをすべて貼り付けて保存</li><li><code>setupWorksDB</code> を1回実行してレイアウト作成</li><li>シートを再読込し「WorksDB」メニューを確認</li><li>「デプロイ」→「新しいデプロイ」→「ウェブアプリ」</li><li>実行ユーザー「自分」、アクセス「全員」でデプロイ</li><li>発行URLを案件HTMLの <code>webAppUrl</code> に設定</li></ol></div>
+          <div class="gas-dialog-actions"><button type="button" id="gas-copy-btn" class="studio-btn studio-btn--amber">コードをコピー</button><button type="button" id="gas-done-btn" class="studio-btn">閉じる</button></div>
+        </div>
+        <div class="gas-code-panel">
+          <div class="gas-code-head"><span>Code.gs · 空シート自動レイアウト対応</span><span id="gas-copy-state" class="gas-copy-state" hidden>コピーしました</span></div>
+          <textarea id="gas-code-output" class="gas-code-output" readonly spellcheck="false" aria-label="Apps Scriptコード"></textarea>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <textarea id="gas-code-template" hidden>/**
+ * WorksDB Universal Schedule & Track Bridge v3
+ * 対象案件: __PROJECT_NAME__
+ *
+ * 初回のみ setupWorksDB() を実行すると、空のスプレッドシートに
+ * 「進捗管理」「スケジュール」「設定_ステータス」「設定_案件」シートを自動作成します。
+ */
+var CONFIG = {
+  projectName: __PROJECT_NAME__,
+  scheduleSheetName: __SCHEDULE_NAME__ || "スケジュール",
+  trackSheetName: __TRACK_SHEET_NAME__ || "進捗管理",
+  statusSheetName: "設定_ステータス",
+  projectSheetName: "設定_案件",
+  daysToSetup: __SCHEDULE_DAYS__ || 60,
+  initialTrackCount: __TRACK_COUNT__ || 10,
+  startDate: __SCHEDULE_START__ || ""
+};
+
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu("WorksDB")
+    .addItem("初期レイアウトを作成/再生成", "setupWorksDB")
+    .addItem("接続情報を表示", "showWorksDBInfo_")
+    .addToUi();
+}
+
+function setupWorksDB() {
+  var ui = SpreadsheetApp.getUi();
+  var answer = ui.alert(
+    "WorksDB 初期セットアップ",
+    "空のシートに進捗管理表と制作スケジュール表を作成します。\n" +
+      "WorksDB形式ではない既存データは上書きしません。続行しますか？",
+    ui.ButtonSet.YES_NO
+  );
+  if (answer !== ui.Button.YES) return;
+
+  try {
+    var active = SpreadsheetApp.getActiveSpreadsheet();
+    var trackSheet = setupTrackSheet_(active);
+    var scheduleSs = getScheduleSpreadsheet_();
+    var scheduleSheet = setupScheduleSheet_(scheduleSs, trackSheet);
+    SpreadsheetApp.flush();
+    ui.alert(
+      "セットアップ完了",
+      "進捗: " + trackSheet.getName() + "\n" +
+        "スケジュール: " + scheduleSheet.getName() + "\n\n" +
+        "シートを再読み込みすると「WorksDB」メニューが表示されます。",
+      ui.ButtonSet.OK
+    );
+  } catch (err) {
+    ui.alert("セットアップ中止", String(err.message || err), ui.ButtonSet.OK);
+    throw err;
+  }
+}
+
+function showWorksDBInfo_() {
+  var url = ScriptApp.getService().getUrl() || "未デプロイ";
+  SpreadsheetApp.getUi().alert(
+    "WorksDB 接続情報 (" + CONFIG.projectName + ")",
+    "WebアプリURL:\n" + url + "\n\n" +
+      "スケジュールシート: " + CONFIG.scheduleSheetName + "\n" +
+      "進捗管理シート: " + CONFIG.trackSheetName + "\n" +
+      "ステータス設定: " + CONFIG.statusSheetName + "\n" +
+      "案件設定: " + CONFIG.projectSheetName + "\n" +
+      "Engine: WorksDB Universal Bridge v3",
+    
+    var dateColMap = {};
+    for (var c = 3; c < headerRow.length; c++) {
+      var normDate = normalizeDateStr_(headerRow[c]);
+      if (normDate) dateColMap[normDate] = c + 1;
+    }
+    
+    var trackRowMap = {};
+    for (var r = 1; r < gridValues.length; r++) {
+      var pName = String(gridValues[r][0] || "").trim();
+      var tName = String(gridValues[r][1] || "").trim();
+      if (pName && tName) {
+        trackRowMap[pName + "||" + tName] = r + 1;
+      }
+    }
+    
+    var updatedCellsCount = 0;
+    for (var i = 0; i < params.edits.length; i++) {
+      var edit = params.edits[i];
+      if (edit.project && edit.track && edit.date) {
+        }
+
+        // Also save to Column-Free Normalized Record Table (スケジュール_データ)
+        writeNormalizedRecordRow_(ss, edit);
+      }
+    }
+    result.updates.editsCount = updatedCellsCount;
+  }
+
+  if (params.statuses) {
+    var statusSheet = ss.getSheetByName(CONFIG.statusSheetName);
+    if (statusSheet) {
+      statusSheet.clear();
+      var headers = ["工程名", "カラーHEX"];
+      statusSheet.getRange(1, 1, 1, 2).setValues([headers]).setBackground("#10243d").setFontColor("#ffffff");
+      var vals = [];
+      for (var i = 0; i < params.statuses.length; i++) {
+        if (params.statuses[i].name) vals.push([params.statuses[i].name, params.statuses[i].color]);
+      }
+      if (vals.length) statusSheet.getRange(2, 1, vals.length, 2).setValues(vals);
+    }
+  }
+
+  if (params.projects) {
+    var projSheet = ss.getSheetByName(CONFIG.projectSheetName);
+    if (projSheet) {
+      projSheet.clear();
+      var headers = ["案件ID", "案件名", "カラーHEX", "アーカイブ", "表示順"];
+      projSheet.getRange(1, 1, 1, 5).setValues([headers]).setBackground("#10243d").setFontColor("#ffffff");
+      var vals = [];
+      for (var i = 0; i < params.projects.length; i++) {
+        var p = params.projects[i];
+        vals.push([p.id, p.name, p.color, p.archived ? "TRUE" : "FALSE", p.order]);
+      }
+      if (vals.length) {
+        projSheet.getRange(2, 1, vals.length, 5).setValues(vals);
+        projSheet.getRange(2, 4, vals.length, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
+      }
+    }
+  }
+  
+  SpreadsheetApp.flush();
+  return result;
+}
+
+function writeNormalizedRecordRow_(ss, edit) {
+  var recSheet = ss.getSheetByName("スケジュール_データ");
+  if (!recSheet) return;
+  
+  var proj = edit.project;
+  var track = edit.track;
+  var dateStr = normalizeDateStr_(edit.date);
+  var val = edit.v || "";
+  
+  var vals = recSheet.getDataRange().getDisplayValues();
+  for (var r = 1; r < vals.length; r++) {
+    if (vals[r][0] === proj && vals[r][1] === track && normalizeDateStr_(vals[r][2]) === dateStr) {
+      if (val) {
+        recSheet.getRange(r + 1, 4).setValue(val);
+        recSheet.getRange(r + 1, 6).setValue(new Date());
+      } else {
+        recSheet.deleteRow(r + 1);
+      }
+      return;
+    }
+  }
+  if (val) {
+    recSheet.appendRow([proj, track, dateStr, val, "", new Date()]);
+  }
+}
+
+function writeTrackField_(params) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(CONFIG.trackSheetName);
+  if (!sheet) throw new Error("Track sheet not found");
+  
+  var code = params.code;
+  var field = params.field;
+  var value = params.value;
+  
+  var colMap = { version: 2, status: 9, percent: 10, client: 11, overallSummary: 12 };
+  var colIdx = colMap[field];
+  if (!colIdx) throw new Error("Invalid field: " + field);
+  
+  var values = sheet.getDataRange().getDisplayValues();
+  for (var r = 1; r < values.length; r++) {
+    if (values[r][0] === code) {
+      sheet.getRange(r + 1, colIdx).setValue(value);
+      SpreadsheetApp.flush();
+      return { ok: true, code: code, field: field, value: value };
+    }
+  }
+  return { ok: false, error: "Track code not found" };
+}
+
+function addTrackRow_(params) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(CONFIG.scheduleSheetName);
+  if (!sheet) throw new Error("Schedule sheet not found");
+  
+  var projName = params.project;
+  var trackName = params.track;
+  var memo = params.memo || "";
+  
+  var lastCol = sheet.getLastColumn();
+  var newRow = [projName, trackName, memo];
+  for (var c = 4; c <= lastCol; c++) newRow.push("");
+  sheet.appendRow(newRow);
+  SpreadsheetApp.flush();
+  return { ok: true, action: "add_track" };
+}
+
+function deleteTrackRow_(params) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(CONFIG.scheduleSheetName);
+  if (!sheet) throw new Error("Schedule sheet not found");
+  
+  var projName = params.project;
+  var trackName = params.track;
+  var values = sheet.getDataRange().getDisplayValues();
+  for (var r = 1; r < values.length; r++) {
+    if (values[r][0] === projName && values[r][1] === trackName) {
+      sheet.deleteRow(r + 1);
+      SpreadsheetApp.flush();
+      return { ok: true, action: "delete_track" };
+    }
+  }
+  return { ok: false, error: "Track not found" };
+}
+</textarea>
+  <dialog id="master-dialog" class="registry-dialog gas-dialog">
+    <div class="registry-dialog-head"><div><h3>◎ WorksDB 管理シート接続</h3><p class="gas-config-note">全案件の正本となるGoogleスプレッドシート</p></div><button type="button" id="master-dialog-close" class="registry-close" aria-label="閉じる">×</button></div>
+    <div class="gas-dialog-body">
+      <div class="gas-layout">
+        <div class="gas-config">
+          <label class="registry-field"><span>管理用スプレッドシート URL / ID</span><input id="master-spreadsheet-id" placeholder="https://docs.google.com/spreadsheets/d/... またはID"></label>
+          <label class="registry-field"><span>管理GAS Webアプリ URL</span><input id="master-webapp-url" type="url" placeholder="https://script.google.com/macros/s/.../exec"></label>
+          <div id="master-connection-state" class="gas-help"><strong>現在はローカル保存です</strong>URLを保存すると「案件マスター」シートを正本として同期します。</div>
+          <div class="registry-dialog-actions" style="justify-content:flex-start;flex-wrap:wrap">
+            <button type="button" id="master-save-btn" class="studio-btn studio-btn--amber">保存して同期</button>
+            <button type="button" id="master-upload-btn" class="studio-btn studio-btn--ghost">現在の一覧を管理シートへ送る</button>
+            <a id="master-open-sheet" class="studio-btn studio-btn--ghost" href="#" target="_blank" rel="noopener" hidden>管理シートを開く ↗</a>
+          </div>
+          <div class="gas-help"><strong>初回セットアップ</strong><ol><li>空のGoogleスプレッドシートを作る</li><li>拡張機能 → Apps Script に右のコードを貼る</li><li><code>setupWorksDBMaster</code> を1回実行</li><li>Webアプリとしてデプロイし、URLを上に保存</li></ol></div>
+        </div>
+        <div class="gas-code-panel">
+          <div class="gas-code-head"><span>管理用 Code.gs</span><div><span id="master-copy-state" class="gas-copy-state" hidden>コピーしました</span> <button type="button" id="master-copy-btn" class="studio-btn studio-btn--cyan">コードをコピー</button></div></div>
+          <textarea id="master-code-output" class="gas-code-output" readonly spellcheck="false">Code.gsを読み込み中…</textarea>
+        </div>
+      </div>
+    </div>
+  </dialog>
+  <dialog id="registry-dialog" class="registry-dialog registry-dialog--project">
+    <form id="registry-form">
+      <div class="registry-dialog-head"><h3 id="registry-dialog-title">DBを追加</h3><button type="button" id="registry-dialog-close" class="registry-close" aria-label="閉じる">×</button></div>
+      <div class="registry-form">
+        <input type="hidden" name="id">
+        <div class="registry-form-grid">
+          <label class="registry-field registry-field--full"><span>DB名 *</span><input name="name" required maxlength="100"></label>
+          <label class="registry-field"><span>種別</span><input name="type" maxlength="60" placeholder="制作管理 / 会計 / ログなど"></label>
+          <label class="registry-field"><span>状態</span><select name="status"><option>稼働中</option><option>準備中</option><option>保留</option><option>完了</option><option>停止</option></select></label>
+          <label class="registry-field"><span>担当者</span><input name="owner" maxlength="60"></label>
+          <label class="registry-field"><span>識別カラー</span><input name="color" type="color" value="#6fd6ff"></label>
+          <label class="registry-field"><span>完パケ/納品締切日</span><input type="date" name="deadline"></label>
+          <label class="registry-field"><span>放送日/公開日メモ</span><input name="broadcastDate" placeholder="例: 2026年9月5日 22:00〜"></label>
+          <label class="registry-field registry-field--full"><span>URL / HTMLパス</span><input name="url" maxlength="500" placeholder="https://... または ./other-db.html"></label>
+          <label class="registry-field registry-field--full"><span>メモ・ガイドライン</span><textarea name="note" maxlength="800" placeholder="制作メモ、コンセプトリファレンス等"></textarea></label>
+        </div>
+        <section class="registry-project-connections" aria-labelledby="registry-connections-title">
+          <div class="registry-section-head">
+            <div><h4 id="registry-connections-title">スプレッドシート・スケジュール連携</h4><p>この案件専用の接続先です。案件IDでスケジュールアプリとペアリングされます。</p></div>
+            <code id="registry-pairing-id" class="registry-pairing-id" hidden></code>
+          </div>
+          <div class="registry-form-grid">
+            <label class="registry-field registry-field--full"><span>進捗スプレッドシート URL / ID</span><input name="spreadsheetUrl" maxlength="500" placeholder="https://docs.google.com/spreadsheets/d/... または ID"></label>
+            <label class="registry-field"><span>進捗シート GID</span><input name="sheetGid" type="number" min="0" value="0"></label>
+            <label class="registry-field"><span>進捗シート名</span><input name="trackSheetName" maxlength="100" placeholder="進捗管理"></label>
+            <label class="registry-field registry-field--full"><span>Apps Script Webアプリ URL</span><input name="webAppUrl" type="url" maxlength="500" placeholder="https://script.google.com/macros/s/.../exec"></label>
+            <label class="registry-field registry-field--full"><span>スケジュール用スプレッドシート URL / ID</span><input name="scheduleSpreadsheetUrl" maxlength="500" placeholder="空欄なら進捗スプレッドシートと同じファイル"></label>
+            <label class="registry-field"><span>スケジュール GID</span><input name="scheduleGid" type="number" min="0" value="0"></label>
+            <label class="registry-field"><span>スケジュールシート名</span><input name="scheduleSheetName" maxlength="100" placeholder="制作スケジュール"></label>
+          </div>
+          <div id="registry-project-tools" class="registry-project-tools" hidden>
+            <button type="button" id="registry-project-script-btn" class="studio-btn studio-btn--cyan">この案件のスクリプトコード</button>
+            <a id="registry-project-schedule-link" class="studio-btn studio-btn--ghost" href="ScheduleBoard.html" target="_blank" rel="noopener">スケジュールアプリで開く</a>
+          </div>
+        </section>
+        <div class="registry-dialog-actions"><button type="button" id="registry-cancel-btn" class="studio-btn studio-btn--ghost">キャンセル</button><button class="studio-btn studio-btn--amber">保存</button></div>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="deadline-dialog" class="registry-dialog">
+    <form id="deadline-form">
+      <div class="registry-dialog-head">
+        <h3>📅 締め切り日・放送日の設定</h3>
+        <button type="button" id="deadline-dialog-close" class="registry-close" aria-label="閉じる">×</button>
+      </div>
+      <div class="registry-form">
+        <div class="registry-form-grid">
+          <label class="registry-field registry-field--full">
+            <span>完パケ / 納品締切日 *</span>
+            <input type="date" id="deadline-input-date" required>
+          </label>
+          <label class="registry-field registry-field--full">
+            <span>放送日 / 公開日メモ</span>
+            <input type="text" id="deadline-input-broadcast" placeholder="例: 2026年9月5日 22:00〜">
+          </label>
+        </div>
+        <div class="registry-dialog-actions" style="margin-top:1.2rem;">
+          <button type="button" id="deadline-cancel-btn" class="studio-btn studio-btn--ghost">キャンセル</button>
+          <button type="submit" class="studio-btn studio-btn--amber">設定を保存</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="sheet-settings-dialog" class="registry-dialog">
+    <form id="sheet-settings-form">
+      <div class="registry-dialog-head">
+        <div><h3>⚙ スプレッドシート設定</h3><p id="sheet-settings-project" class="gas-config-note"></p></div>
+        <button type="button" id="sheet-settings-close" class="registry-close" aria-label="閉じる">×</button>
+      </div>
+      <div class="registry-form">
+        <div class="registry-form-grid">
+          <label class="registry-field registry-field--full"><span>進捗スプレッドシート URL / ID</span><input id="sheet-settings-progress" placeholder="https://docs.google.com/spreadsheets/d/... またはID"></label>
+          <label class="registry-field"><span>進捗シート GID</span><input id="sheet-settings-progress-gid" type="number" min="0" value="0"></label>
+          <label class="registry-field"><span>進捗シート名</span><input id="sheet-settings-track-name" placeholder="進捗管理"></label>
+          <label class="registry-field registry-field--full"><span>Apps Script Webアプリ URL</span><input id="sheet-settings-webapp" type="url" placeholder="https://script.google.com/macros/s/.../exec"></label>
+          <label class="registry-field registry-field--full"><span>スケジュール用スプレッドシート URL / ID</span><input id="sheet-settings-schedule" placeholder="空欄なら進捗シートと同じファイル"></label>
+          <label class="registry-field"><span>スケジュール GID</span><input id="sheet-settings-schedule-gid" type="number" min="0" value="0"></label>
+          <label class="registry-field"><span>スケジュールシート名</span><input id="sheet-settings-schedule-name" placeholder="制作スケジュール"></label>
+        </div>
+        <p class="gas-config-note" style="margin-top:.9rem;">保存すると、この案件のリンク・読み込み先・書き込み先へ即時反映します。スケジュールURLを空欄にすると進捗シートと同じファイルを使用します。</p>
+        <div class="registry-dialog-actions">
+          <button type="button" id="sheet-settings-cancel" class="studio-btn studio-btn--ghost">キャンセル</button>
+          <button type="submit" class="studio-btn studio-btn--amber">保存して再読み込み</button>
+        </div>
+      </div>
+    </form>
+  </dialog>  <div id="registry-toast" class="registry-toast" hidden></div>
+  <script src="js/dashboard.js"></script>
+
+<script src="js/registry.js"></script>
+
+</body>
+</html>

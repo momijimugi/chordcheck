@@ -1,0 +1,3642 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>作曲スケジュールボード</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      --bg-main: #0b0c10;
+      --bg-panel: #151722;
+      --bg-panel-soft: #1b1e2b;
+      --bg-accent: radial-gradient(circle at top left, #38324f 0%, #151722 45%, #05060a 100%);
+      --gold: #f2c56b;
+      --gold-soft: #f2d9a6;
+      --text-main: #f5f5f7;
+      --text-muted: #a3a7c2;
+      --border-soft: rgba(255,255,255,0.06);
+      --danger: #ff6b81;
+      --today: rgba(242,197,107,0.45);
+      --shadow-soft: 0 18px 40px rgba(0,0,0,0.55);
+      --radius-xl: 18px;
+      --radius-lg: 12px;
+      --radius-md: 8px;
+      --transition-fast: 0.18s ease-out;
+      --transition-med: 0.25s ease-out;
+      --cell-height: 28px;
+      --cell-width: 70px;
+      --cell-font-size: 0.68rem;
+      --sidebar-width: 280px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text-main);
+      background: radial-gradient(circle at top left, #2c2540 0%, #05060a 55%, #000000 100%);
+    }
+
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: stretch;
+      padding: 16px;
+    }
+
+    .app-shell {
+      display: flex;
+      flex-direction: row;
+      width: 100%;
+      max-width: 100%;
+      min-height: 80vh;
+      background: var(--bg-accent);
+      border-radius: 24px;
+      box-shadow: var(--shadow-soft);
+      border: 1px solid rgba(255,255,255,0.06);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .app-shell::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at top right, rgba(242,197,107,0.16), transparent 55%);
+      mix-blend-mode: screen;
+      opacity: 0.6;
+      pointer-events: none;
+    }
+
+    .sidebar {
+      position: relative;
+      width: var(--sidebar-width);
+      padding: 18px 18px 18px 20px;
+      background: linear-gradient(160deg, rgba(10,11,18,0.96), rgba(10,11,18,0.9));
+      border-right: 1px solid rgba(255,255,255,0.05);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      z-index: 1;
+    }
+
+    .main {
+      flex: 1;
+      padding: 16px 18px 18px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      position: relative;
+      z-index: 1;
+      min-width: 0;
+    }
+
+    .app-title {
+      display: flex;
+      align-items: flex-start;
+      justify-content: flex-start;
+      gap: 12px;
+    }
+
+    .app-title-text {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-width: 220px;
+    }
+
+    .app-title-main {
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+    }
+
+    .app-title-main span.logo-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: radial-gradient(circle at 30% 30%, #fff7e0, #f2c56b 45%, #b57a28 100%);
+      box-shadow: 0 0 16px rgba(242,197,107,0.9);
+      flex-shrink: 0;
+    }
+
+    .app-title-sub {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      opacity: 0.9;
+      line-height: 1.4;
+      white-space: normal;
+    }
+
+    .pill {
+      font-size: 0.72rem;
+      padding: 4px 9px;
+      border-radius: 999px;
+      border: 1px solid rgba(242,197,107,0.55);
+      color: var(--gold-soft);
+      background: linear-gradient(135deg, rgba(242,197,107,0.16), rgba(10,11,18,0.9));
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+      margin-top: 4px;
+      align-self: flex-start;
+    }
+
+    .pill small {
+      color: var(--text-muted);
+      font-size: 0.68rem;
+    }
+
+    .section-label {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    .sidebar-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .btn {
+      border-radius: 999px;
+      padding: 7px 10px;
+      font-size: 0.8rem;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.03);
+      color: var(--text-main);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      transition: background var(--transition-fast), transform var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+      white-space: nowrap;
+    }
+
+    .btn span.icon {
+      font-size: 0.9rem;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, rgba(242,197,107,0.9), rgba(210,160,82,1));
+      color: #1b1307;
+      border-color: rgba(0,0,0,0.4);
+      font-weight: 600;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 24px rgba(0,0,0,0.6);
+    }
+
+    .btn-soft {
+      background: rgba(255,255,255,0.03);
+    }
+
+    .btn-soft:hover {
+      background: rgba(255,255,255,0.06);
+      transform: translateY(-1px);
+    }
+
+    .btn-sm {
+      padding: 5px 9px;
+      font-size: 0.75rem;
+    }
+
+    .btn-ghost {
+      background: transparent;
+      border-color: rgba(255,255,255,0.04);
+      color: var(--text-muted);
+    }
+
+    .btn-ghost.active {
+      border-color: rgba(242,197,107,0.8);
+      color: var(--gold-soft);
+      background: rgba(242,197,107,0.1);
+    }
+
+    .btn-icon-only {
+      padding-inline: 6px;
+      min-width: 0;
+    }
+
+    .project-list {
+      background: var(--bg-panel-soft);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border-soft);
+      padding: 6px 4px;
+      max-height: 100%;
+      overflow-y: auto;
+    }
+
+    .project-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 8px;
+      margin: 2px 0;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: background var(--transition-fast), transform var(--transition-fast), border-color var(--transition-fast);
+      border: 1px solid transparent;
+      font-size: 0.8rem;
+    }
+
+    .project-item:hover {
+      background: rgba(255,255,255,0.04);
+      transform: translateY(-1px);
+    }
+
+    .project-item.active {
+      background: rgba(242,197,107,0.12);
+      border-color: rgba(242,197,107,0.8);
+    }
+
+    .project-name {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .project-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--gold-soft);
+      opacity: 0.9;
+    }
+
+    .project-meta {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+
+    .top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      background: rgba(10,11,18,0.86);
+      border-radius: var(--radius-xl);
+      border: 1px solid var(--border-soft);
+      padding: 8px 10px 8px 12px;
+      backdrop-filter: blur(16px);
+    }
+
+    .top-left-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .date-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.85rem;
+      flex-wrap: wrap;
+    }
+
+    .date-label {
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .range-settings {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .range-settings input {
+      width: 60px;
+      padding: 3px 6px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(0,0,0,0.45);
+      color: var(--text-main);
+      font-size: 0.75rem;
+      outline: none;
+    }
+
+    .range-settings input:focus {
+      border-color: rgba(242,197,107,0.7);
+      box-shadow: 0 0 0 1px rgba(242,197,107,0.35);
+    }
+
+    .backup-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .backup-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .backup-status span.value {
+      font-weight: 500;
+      color: var(--text-main);
+    }
+
+    .backup-status.overdue span.value {
+      color: var(--danger);
+    }
+
+    .import-label {
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
+    }
+
+    .import-label input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    .grid-shell {
+      flex: 1;
+      background: rgba(10,11,18,0.9);
+      border-radius: var(--radius-xl);
+      border: 1px solid var(--border-soft);
+      padding: 10px 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 0;
+    }
+
+    .grid-header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      padding: 0 2px;
+    }
+
+    .grid-header-row span.highlight {
+      color: var(--gold-soft);
+    }
+
+    .grid-header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .client-view-banner {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 0.75rem;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      margin-bottom: 4px;
+    }
+
+    /* クライアントビュー時だけ表示 */
+    body.client-view-mode #clientViewBanner {
+      display: flex;
+    }
+    body.client-view-mode #clientViewBanner.hidden {
+      display: none;
+    }
+
+    .status-filter {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.75rem;
+    }
+
+    .status-filter select {
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.16);
+      background: rgba(0,0,0,0.55);
+      color: var(--text-main);
+      font-size: 0.75rem;
+      outline: none;
+    }
+
+    .status-filter select:focus {
+      border-color: rgba(242,197,107,0.7);
+      box-shadow: 0 0 0 1px rgba(242,197,107,0.35);
+    }
+
+    .grid-wrapper {
+      flex: 1;
+      overflow-x: auto;
+      overflow-y: auto;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(255,255,255,0.04);
+      background: radial-gradient(circle at top, rgba(255,255,255,0.04), rgba(10,11,18,0.98) 55%);
+    }
+
+    /* ブラウザの青いテキスト選択を殺す */
+    .grid-wrapper,
+    .grid-wrapper * {
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    table.schedule-grid {
+      border-collapse: separate;
+      border-spacing: 0;
+      width: max(100%, max-content);
+      font-size: var(--cell-font-size);
+    }
+
+    table.schedule-grid thead {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      background: linear-gradient(to bottom, rgba(8,9,14,0.98), rgba(8,9,14,0.96));
+      box-shadow: 0 4px 10px rgba(0,0,0,0.7);
+    }
+
+    table.schedule-grid th,
+    table.schedule-grid td {
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+
+    table.schedule-grid th {
+      padding: 6px 6px;
+      text-align: left;
+      color: var(--text-muted);
+      font-size: 0.72rem;
+      white-space: nowrap;
+      position: relative;
+      background-clip: padding-box;
+    }
+
+    table.schedule-grid th.row-header {
+      min-width: 220px;   /* ← 180px からアップ */
+      max-width: 280px;
+      position: sticky;
+      left: 0;
+      z-index: 5;
+      background: linear-gradient(to right, rgba(10,11,18,0.98), rgba(10,11,18,0.96));
+      border-right: 1px solid rgba(255,255,255,0.06);
+    }
+
+    table.schedule-grid th.date-header {
+      text-align: center;
+      min-width: var(--cell-width);
+    }
+
+    .date-header-main {
+      color: var(--text-main);
+      display: block;
+      font-weight: 500;
+    }
+
+    .date-header-sub {
+      font-size: 0.68rem;
+      opacity: 0.8;
+    }
+
+    .date-header.today {
+      background: linear-gradient(to bottom, rgba(242,197,107,0.5), rgba(10,11,18,0.95));
+      color: var(--gold-soft);
+    }
+
+    .date-header.today .date-header-main {
+      color: #fff8e8;
+    }
+
+    table.schedule-grid tbody tr:nth-child(even) td.row-header-cell {
+      background: rgba(10,11,18,0.96);
+    }
+
+    table.schedule-grid tbody tr:nth-child(odd) td.row-header-cell {
+      background: rgba(10,11,18,0.9);
+    }
+
+    table.schedule-grid td {
+      padding: 0;
+      background: transparent;
+    }
+
+    table.schedule-grid td.row-header-cell {
+      position: sticky;
+      left: 0;
+      z-index: 4;
+      border-right: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .row-header-inner {
+      padding: 4px 6px 4px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .row-header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+    .row-header-title {
+      color: var(--text-main);
+      font-weight: 500;
+      font-size: 0.8rem;
+    }
+
+    .row-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .row-header-tag {
+      font-size: 0.65rem;
+      padding: 2px 6px;
+      border-radius: 999px;
+      border: 1px solid rgba(242,197,107,0.35);
+      color: var(--gold-soft);
+      align-self: flex-start;
+      margin-top: 2px;
+    }
+
+
+    .cell {
+      position: relative;
+      height: var(--cell-height);
+      padding: 2px 2px;
+      border-left: 1px solid rgba(255,255,255,0.03);
+      background: rgba(5,6,11,0.7);
+      transition: background 0.15s ease-out, box-shadow 0.15s ease-out, outline 0.15s ease-out, opacity 0.15s ease-out;
+    }
+
+    .cell.today {
+      background: linear-gradient(to bottom, rgba(242,197,107,0.7), rgba(242,197,107,0.3));
+    }
+
+    .cell-inner {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 3px;
+      padding: 0 4px;
+    }
+
+    .cell-select {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.16);
+      background: transparent;
+      color: #fdfdfd;
+      font-size: var(--cell-font-size);
+      padding: 0;
+      outline: none;
+      appearance: none;
+      -webkit-appearance: none;
+      cursor: pointer;
+    }
+
+    .cell-label {
+      position: relative;
+      z-index: 1;
+      font-size: var(--cell-font-size);
+      color: #fdfdfd;
+      white-space: nowrap;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: clip;
+      flex: 1;
+      text-align: center;
+    }
+
+    .cell-dropdown-btn {
+      position: relative;
+      z-index: 1;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 0.6rem;
+      cursor: pointer;
+      padding: 0 2px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-left: 4px;
+      flex-shrink: 0;
+    }
+
+    .cell-dropdown-btn:hover {
+      color: var(--gold-soft);
+    }
+
+    .cell.selected {
+      outline: 2px solid rgba(242,197,107,0.9);
+      outline-offset: -1px;
+    }
+
+    .cell-select option {
+      background: #111827;
+      color: #f9fafb;
+    }
+
+    .cell.dim {
+      opacity: 0.25;
+    }
+
+    .empty-message {
+      padding: 16px 14px;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .grid-settings {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 4px;
+      font-size: 0.75rem;
+    }
+
+    .grid-settings-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+    .grid-settings-row label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      color: var(--text-muted);
+      flex: 1;
+    }
+
+    .grid-settings-row input {
+      width: 70px;
+      padding: 3px 6px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(0,0,0,0.45);
+      color: var(--text-main);
+      font-size: 0.75rem;
+      outline: none;
+    }
+
+    .grid-settings-row input:focus {
+      border-color: rgba(242,197,107,0.7);
+      box-shadow: 0 0 0 1px rgba(242,197,107,0.35);
+    }
+
+    .hidden { display: none !important; }
+
+    .alt-ghost {
+      position: fixed;
+      z-index: 2000;
+      pointer-events: none;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(0,0,0,0.65);
+      color: #fdfdfd;
+      font-size: 0.7rem;
+      border: 1px solid rgba(242,197,107,0.8);
+      box-shadow: 0 8px 18px rgba(0,0,0,0.7);
+      opacity: 0.85;
+      transform: translate(8px, 8px);
+    }
+
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+    }
+
+    .modal {
+      background: #151722;
+      border-radius: 16px;
+      border: 1px solid var(--border-soft);
+      box-shadow: var(--shadow-soft);
+      padding: 14px 16px 12px;
+      width: min(420px, 92vw);
+      font-size: 0.8rem;
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .modal-title {
+      font-size: 0.86rem;
+      font-weight: 600;
+    }
+
+    .modal-body {
+      max-height: 320px;
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+
+    .status-name-input {
+      flex: 1;
+      padding: 4px 7px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(0,0,0,0.4);
+      color: var(--text-main);
+      font-size: 0.8rem;
+      outline: none;
+    }
+
+    .status-name-input:focus {
+      border-color: rgba(242,197,107,0.7);
+      box-shadow: 0 0 0 1px rgba(242,197,107,0.35);
+    }
+
+    .status-color-input {
+      width: 40px;
+      height: 24px;
+      padding: 0;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: transparent;
+      cursor: pointer;
+    }
+
+    .status-delete-btn {
+      padding-inline: 8px;
+    }
+
+    .modal-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 8px;
+      gap: 8px;
+    }
+
+    .modal-note {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+    }
+
+    .context-menu {
+      position: fixed;
+      z-index: 3000;
+      min-width: 150px;
+      background: #111827;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.12);
+      box-shadow: 0 12px 30px rgba(0,0,0,0.75);
+      padding: 4px 0;
+      font-size: 0.78rem;
+    }
+
+    .context-menu-item {
+      padding: 6px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      gap: 8px;
+    }
+
+    .context-menu-item:hover {
+      background: rgba(255,255,255,0.06);
+    }
+
+    .context-menu-item span.shortcut {
+      color: var(--text-muted);
+      font-size: 0.72rem;
+    }
+
+    /* 入力用ポップアップ */
+    .input-popover {
+      position: fixed;
+      z-index: 4000;
+      background: #111827;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.12);
+      box-shadow: 0 12px 30px rgba(0,0,0,0.75);
+      padding: 10px 12px 8px;
+      width: 240px;
+      font-size: 0.78rem;
+    }
+
+    .input-popover-title {
+      font-size: 0.8rem;
+      margin-bottom: 6px;
+    }
+
+    .input-popover-input {
+      width: 100%;
+      padding: 5px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.16);
+      background: rgba(0,0,0,0.45);
+      color: var(--text-main);
+      font-size: 0.8rem;
+      outline: none;
+      margin-bottom: 6px;
+    }
+
+    .input-popover-input:focus {
+      border-color: rgba(242,197,107,0.7);
+      box-shadow: 0 0 0 1px rgba(242,197,107,0.35);
+    }
+
+    .input-popover-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 6px;
+    }
+
+    /* プロジェクトごとのグループ行 */
+    .project-group-row td {
+      padding: 4px 8px;
+      background: linear-gradient(to right, rgba(20,20,30,0.98), rgba(20,20,30,0.9));
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      position: sticky;
+      left: 0;
+      z-index: 3;
+    }
+
+    .project-group-inner {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .project-group-row {
+      cursor: pointer;
+    }
+
+    .project-group-row:hover .project-group-inner {
+      background: rgba(255,255,255,0.03);
+      border-radius: 8px;
+      padding-inline: 4px;
+    }
+
+    .project-group-toggle {
+      margin-left: auto;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .row-header-memo-btn {
+      font-size: 0.7rem;
+      padding: 2px 6px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(0,0,0,0.4);
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+
+    .row-header-memo-btn:hover {
+      border-color: rgba(242,197,107,0.7);
+      color: var(--gold-soft);
+    }
+
+    /* ヒートマップ用 */
+    .date-header-heat {
+      position: relative;
+    }
+
+    .date-header-heat::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(
+        to bottom,
+        rgba(255, 200, 120, 0.0),
+        rgba(255, 120, 120, var(--heat-intensity, 0))
+      );
+      mix-blend-mode: screen;
+    }
+
+    /* セルメモのマーク */
+    .cell.has-note::after {
+      content: "";
+      position: absolute;
+      right: 2px;
+      top: 2px;
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: var(--gold-soft);
+      box-shadow: 0 0 6px rgba(242,197,107,0.8);
+    }
+
+    /* セルメモ用ツールチップ */
+    .cell-tooltip {
+      position: fixed;
+      z-index: 5000;
+      max-width: 260px;
+      background: #111827;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.18);
+      box-shadow: 0 12px 30px rgba(0,0,0,0.8);
+      padding: 6px 8px;
+      font-size: 0.75rem;
+      color: var(--text-main);
+      pointer-events: none;
+    }
+
+    .cell-tooltip.hidden {
+      display: none;
+    }
+
+    .project-group-name {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--gold-soft);
+    }
+
+    .project-group-deadline {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-left: 12px;
+    }
+
+    .project-group-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: var(--gold-soft);
+      box-shadow: 0 0 10px rgba(242,197,107,0.7);
+    }
+
+    /* クライアントビュー用 */
+    body.client-view-mode .sidebar {
+      display: none;
+    }
+
+    body.client-view-mode .backup-info {
+      display: none;
+    }
+
+    body.client-view-mode .row-header-actions,
+    body.client-view-mode .cell-dropdown-btn {
+      display: none;
+    }
+
+    body.client-view-mode .grid-settings,
+    body.client-view-mode #showAllBtn,
+    body.client-view-mode #showSelectedBtn {
+      display: none;
+    }
+
+    body.client-view-mode .grid-shell {
+      border-radius: 12px;
+    }
+
+    @media (max-width: 980px) {
+      body { padding: 8px; }
+      .app-shell {
+        flex-direction: column;
+        max-height: none;
+      }
+      .sidebar {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+        flex-shrink: 0;
+      }
+      .main { padding-top: 10px; }
+      .top-bar {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .backup-info { justify-content: flex-start; }
+    }
+
+    @media (max-width: 640px) {
+      .app-shell { border-radius: 18px; }
+      .sidebar-controls {
+        flex-wrap: wrap;
+        flex-direction: row;
+      }
+      .section-label { margin-top: 4px; }
+      .app-title-text { max-width: 200px; }
+    }
+
+    @media print {
+      body {
+        padding: 0;
+        background: #ffffff;
+      }
+      .app-shell {
+        max-width: none;
+        border-radius: 0;
+        box-shadow: none;
+        border: none;
+        background: #ffffff;
+      }
+      .sidebar { display: none; }
+      .main { padding: 12px; }
+      .top-bar {
+        background: #ffffff;
+        border-radius: 0;
+        border: none;
+        box-shadow: none;
+      }
+      .grid-shell {
+        background: #ffffff;
+        border: none;
+      }
+      .grid-wrapper {
+        border: 1px solid #ccc;
+        background: #ffffff;
+      }
+      table.schedule-grid {
+        width: 100%;
+        color: #000000;
+      }
+      table.schedule-grid th,
+      table.schedule-grid td {
+        border-color: #ccc;
+      }
+      .date-header.today {
+        background: #f5f5f5;
+      }
+      .cell {
+        background: #ffffff !important;
+      }
+      .cell-label {
+        color: #000000 !important;
+      }
+      .cell.selected { outline: none; }
+      .cell-dropdown-btn { display: none; }
+      .project-group-row td {
+        position: static;
+        background: #f5f5f5;
+      }
+    }
+        /* 締切ヘッダーを赤いグラデーションにして、セル側は太めの枠にする */
+        .date-header.deadline {
+          background: linear-gradient(
+            to bottom,
+            rgba(255,120,120,0.85),
+            rgba(10,11,18,0.95)
+          );
+          color: #ffecec;
+        }
+
+        .date-header.deadline .date-header-main {
+          color: #ffffff;
+        }
+
+        .date-header.deadline .date-header-sub {
+          color: #ffd1d1;
+        }
+
+        /* 案件のセル側は少し太めの枠にする */
+        .cell.deadline-col {
+          box-shadow: inset 0 0 0 2px rgba(255,120,120,0.5);
+        }
+
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="app-title">
+        <div class="app-title-text">
+          <div class="app-title-main">
+            <span class="logo-dot"></span>
+            <span>作曲スケジュールボード</span>
+          </div>
+          <div class="app-title-sub">
+            曲ごとの工程を、階段ガントでざっくり俯瞰するためのボード。
+          </div>
+          <div class="pill">
+            <span>Studio Mode</span>
+            <small>local only</small>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-controls">
+        <button class="btn btn-primary" id="addProjectBtn">
+          <span class="icon">＋</span> 案件を追加
+        </button>
+        <button class="btn btn-soft" id="addTrackBtn">
+          <span class="icon">♪</span> 選択中の案件に曲を追加
+        </button>
+        <button class="btn btn-soft" id="editStatusesBtn">
+          <span class="icon">🎛</span> 工程リスト編集
+        </button>
+        <button class="btn btn-soft" id="autoStairSortBtn">
+          <span class="icon">⛰</span> 階段ソート
+        </button>
+        <div style="display:flex; gap:6px; margin-top:4px; flex-wrap: wrap;">
+          <button class="btn btn-ghost btn-sm active" id="showAllBtn">全案件</button>
+          <button class="btn btn-ghost btn-sm" id="showSelectedBtn">選択中案件のみ</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-label">グリッド設定</div>
+        <div class="grid-settings">
+          <div class="grid-settings-row">
+            <label>
+              列幅
+              <input type="number" id="colWidthInput" min="20" max="200" step="2">
+              <span>px</span>
+            </label>
+          </div>
+          <div class="grid-settings-row">
+            <label>
+              行高
+              <input type="number" id="rowHeightInput" min="14" max="80" step="2">
+              <span>px</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-label">案件・曲リスト</div>
+        <div class="project-list" id="projectList"></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="top-bar">
+        <div class="top-left-group">
+          <div class="date-controls">
+            <button class="btn btn-soft btn-sm" id="prevRangeBtn">
+              <span class="icon">◀</span> 前へ
+            </button>
+            <span class="date-label" id="dateRangeLabel">---</span>
+            <button class="btn btn-soft btn-sm" id="nextRangeBtn">
+              次へ <span class="icon">▶</span>
+            </button>
+            
+          </div>
+          <div class="range-settings">
+            <span>表示日数</span>
+            <input type="number" id="daysToShowInput" min="7" max="90" step="1">
+            <span>日</span>
+          </div>
+        </div>
+        <div class="backup-info">
+          <div class="backup-status" id="backupStatus">
+            <span>最終バックアップ</span>
+            <span class="value" id="backupStatusText">まだありません</span>
+          </div>
+          <button class="btn btn-soft btn-sm" id="undoBtn">
+            <span class="icon">↶</span> 元に戻す
+          </button>
+          <button class="btn btn-soft btn-sm" id="clientViewToggleBtn">
+            👁 クライアントビュー
+          </button>
+          <button class="btn btn-soft btn-sm" id="exportBtn">
+            <span class="icon">💾</span> JSON書き出し
+          </button>
+          <label class="btn btn-soft btn-sm import-label">
+            <span class="icon">📂</span> JSON読み込み
+            <input type="file" id="importInput" accept="application/json">
+          </label>
+
+        </div>
+      </div>
+
+      <div class="grid-shell">
+        <div class="grid-header-row">
+          <span>行：<span class="highlight">案件 × 曲</span> / 列：<span class="highlight">日付</span></span>
+          <div class="grid-header-right">
+            <span>セル内：工程（作曲・MIX・リミックスなど自由にカスタム）</span>
+            <div class="status-filter">
+              <span>工程フィルタ：</span>
+              <select id="statusFilterSelect">
+                <option value="ALL">すべて</option>
+              </select>
+            </div>
+            <button class="btn btn-ghost btn-sm" id="heatmapToggleBtn">
+              🔥 負荷ヒートマップ ON
+            </button>
+          </div>
+        </div>
+
+        <div id="clientViewBanner" class="client-view-banner hidden">
+          <span>クライアントビュー表示中</span>
+          <button class="btn btn-soft btn-sm" id="clientViewBackBtn">
+            通常ビューに戻る
+          </button>
+        </div>
+
+        <div class="grid-wrapper" id="gridWrapper">
+          <!-- JS でテーブルを描画 -->
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- 工程リスト編集モーダル -->
+  <div class="modal-overlay hidden" id="statusEditorOverlay">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">工程リスト編集</div>
+        <button class="btn btn-ghost btn-sm" id="closeStatusEditorBtn">✕</button>
+      </div>
+      <div class="modal-body" id="statusListContainer">
+        <!-- JSで行を生成 -->
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-soft btn-sm" id="addStatusRowBtn">
+          <span class="icon">＋</span> 工程を追加
+        </button>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <span class="modal-note">※空欄の行は無視されます。</span>
+          <button class="btn btn-primary btn-sm" id="saveStatusesBtn">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右クリック用コンテキストメニュー -->
+  <div id="contextMenu" class="context-menu hidden">
+    <div class="context-menu-item" data-action="copy">
+      コピー <span class="shortcut">Ctrl+C</span>
+    </div>
+    <div class="context-menu-item" data-action="paste">
+      貼り付け <span class="shortcut">Ctrl+V</span>
+    </div>
+    <div class="context-menu-item" data-action="clear">
+      削除 <span class="shortcut">Del / Backspace</span>
+    </div>
+  </div>
+
+  <!-- 案件・曲名入力用ポップアップ -->
+  <div id="inputPopover" class="input-popover hidden">
+    <div class="input-popover-title" id="inputPopoverTitle"></div>
+    <input type="text" id="inputPopoverField" class="input-popover-input">
+    <div class="input-popover-actions">
+      <button class="btn btn-ghost btn-sm" id="inputPopoverCancelBtn">キャンセル</button>
+      <button class="btn btn-primary btn-sm" id="inputPopoverOkBtn">追加</button>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'composerScheduleBoard_v10';
+
+    const DEFAULT_STATUSES = [
+      { name: '作曲',      color: '#f5576c' },
+      { name: 'アレンジ',  color: '#84fab0' },
+      { name: 'REC',      color: '#ff9a9e' },
+      { name: 'MIX',      color: '#a18cd1' },
+      { name: 'マスタリング', color: '#f6d365' },
+      { name: '浄書',      color: '#fda085' },
+      { name: '修正',      color: '#f093fb' },
+      { name: '打ち合わせ',  color: '#4facfe' }
+    ];
+
+    const DEFAULT_DAYS_TO_SHOW = 21;
+
+    let selectedProjectId = null;
+    let showOnlySelected = false;
+
+    let selectedCells = new Set(); // "trackId|date"
+    let isSelecting = false;
+    let isAltDragging = false;
+    let altDragSource = null;
+    let altDragGhostEl = null;
+    let lastFocusedCell = null;
+    let clipboardData = null;
+
+    let currentRows = [];
+    let currentDates = [];
+    let trackIdToRowIndex = {};
+    let dateToColIndex = {};
+
+    let contextMenuTarget = null;
+    let trackMemoState = { projectId: null, trackId: null };
+    let cellNoteState = { trackId: null, date: null };
+
+    // 入力ポップアップ状態
+    let inputPopoverState = {
+      type: null,
+      anchorBtn: null
+    };
+
+    // 工程フィルタ
+    let currentStatusFilter = 'ALL';
+
+    // クライアントビュー
+    let clientViewMode = false;
+
+    // Undo スタック
+    let undoStack = [];
+    const UNDO_LIMIT = 20;
+
+    let state = loadStateOrInit();
+
+    function toDateOnly(date) {
+      return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    }
+
+    function formatDateISO(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    function parseISO(dateStr) {
+      const [y, m, d] = dateStr.split('-').map(Number);
+      return new Date(y, m - 1, d);
+    }
+
+    function addDays(date, days) {
+      const d = new Date(date.getTime());
+      d.setDate(d.getDate() + days);
+      return d;
+    }
+
+    function formatDisplayDate(date) {
+      const weekdays = ['日','月','火','水','木','金','土'];
+      const m = date.getMonth() + 1;
+      const d = date.getDate();
+      const w = weekdays[date.getDay()];
+      return `${m}/${d}（${w}）`;
+    }
+
+    function formatDateTimeForLabel(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      const hh = String(date.getHours()).padStart(2, '0');
+      const mm = String(date.getMinutes()).padStart(2, '0');
+      return `${y}/${m}/${d} ${hh}:${mm}`;
+    }
+
+    function generateId() {
+      return 'id_' + Math.random().toString(36).slice(2, 9) + '_' + Date.now().toString(36);
+    }
+
+    function loadStateOrInit() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        const today = toDateOnly(new Date());
+        const sampleProjectId = generateId();
+        const trackA = generateId();
+        const trackB = generateId();
+
+        return {
+          startDate: formatDateISO(today),
+          daysToShow: DEFAULT_DAYS_TO_SHOW,
+          lastBackupAt: null,
+          projects: [
+            {
+              id: sampleProjectId,
+              name: 'サンプル案件',
+              color: '#f2c56b',
+              collapsed: false,
+              archived: false,
+              tracks: [
+                { id: trackA, name: 'Main Theme', memo: '' },
+                { id: trackB, name: 'Ending', memo: '' }
+              ]
+            }
+          ],
+          schedule: {
+            [trackA]: {
+              [formatDateISO(today)]: '作曲',
+              [formatDateISO(addDays(today, 1))]: '作曲',
+              [formatDateISO(addDays(today, 2))]: 'MIX'
+            },
+            [trackB]: {
+              [formatDateISO(addDays(today, 3))]: '作曲',
+              [formatDateISO(addDays(today, 4))]: 'REC'
+            }
+          },
+          statuses: DEFAULT_STATUSES,
+          settings: {
+            cellWidth: 70,
+            cellHeight: 28,
+            heatmapEnabled: true
+          },
+          cellNotes: {}
+        };
+      }
+
+      try {
+        const obj = JSON.parse(raw);
+        if (!obj.projects) throw new Error('invalid data');
+        // 補完: 既存データの拡張
+        if (!obj.settings) obj.settings = {};
+        if (typeof obj.settings.cellWidth !== 'number') obj.settings.cellWidth = 70;
+        if (typeof obj.settings.cellHeight !== 'number') obj.settings.cellHeight = 28;
+        if (typeof obj.settings.heatmapEnabled !== 'boolean') obj.settings.heatmapEnabled = true;
+
+        if (!obj.cellNotes) obj.cellNotes = {};
+
+        obj.projects.forEach(p => {
+          if (typeof p.collapsed !== 'boolean') p.collapsed = false;
+          if (typeof p.archived !== 'boolean') p.archived = false;
+          (p.tracks || []).forEach(t => {
+            if (typeof t.memo !== 'string') t.memo = '';
+          });
+        });
+        
+        if (!obj.daysToShow) obj.daysToShow = DEFAULT_DAYS_TO_SHOW;
+        if (!obj.statuses || !Array.isArray(obj.statuses) || obj.statuses.length === 0) {
+          obj.statuses = DEFAULT_STATUSES;
+        }
+        return obj;
+      } catch (e) {
+        console.warn('failed to parse state, init new', e);
+        localStorage.removeItem(STORAGE_KEY);
+        return loadStateOrInit();
+      }
+    }
+
+        function normalizeImportedState(data) {
+      // プロジェクト配列がなかったらエラーにしておく
+      if (!data || !Array.isArray(data.projects)) {
+        throw new Error('invalid data');
+      }
+
+      // daysToShow / statuses の補完
+      if (!data.daysToShow) data.daysToShow = DEFAULT_DAYS_TO_SHOW;
+      if (!data.statuses || !Array.isArray(data.statuses) || data.statuses.length === 0) {
+        data.statuses = DEFAULT_STATUSES;
+      }
+
+      // settings の補完
+      if (!data.settings) data.settings = {};
+      if (typeof data.settings.cellWidth !== 'number') data.settings.cellWidth = 70;
+      if (typeof data.settings.cellHeight !== 'number') data.settings.cellHeight = 28;
+      if (typeof data.settings.heatmapEnabled !== 'boolean') {
+        data.settings.heatmapEnabled = true;
+      }
+
+      // cellNotes の補完（古いバックアップだと存在しない）
+      if (!data.cellNotes || typeof data.cellNotes !== 'object') {
+        data.cellNotes = {};
+      }
+
+      // 各プロジェクト・トラックの補完
+      data.projects.forEach(p => {
+        if (typeof p.collapsed !== 'boolean') p.collapsed = false;
+        if (typeof p.archived !== 'boolean') p.archived = false;
+        if (!Array.isArray(p.tracks)) p.tracks = [];
+        p.tracks.forEach(t => {
+          if (typeof t.memo !== 'string') t.memo = '';
+        });
+      });
+
+      // schedule がなければ空オブジェクト
+      if (!data.schedule || typeof data.schedule !== 'object') {
+        data.schedule = {};
+      }
+
+      return data;
+    }
+
+
+    function saveState() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+
+    function pushUndo() {
+      const snapshot = JSON.parse(JSON.stringify(state));
+      undoStack.push(snapshot);
+      if (undoStack.length > UNDO_LIMIT) {
+        undoStack.shift();
+      }
+    }
+
+    function undoLast() {
+      if (!undoStack.length) return;
+      state = undoStack.pop();
+      saveState();
+      selectedCells.clear();
+      lastFocusedCell = null;
+      clipboardData = null;
+      renderAll();
+    }
+
+    function getStatusOptions() {
+      return ['', ...state.statuses.map(s => s.name)];
+    }
+
+    function findStatusByName(name) {
+      if (!name) return null;
+      return state.statuses.find(s => s.name === name) || null;
+    }
+
+    function hexToRgb(hex) {
+      if (!hex) return null;
+      const m = hex.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+      if (!m) return null;
+      return {
+        r: parseInt(m[1], 16),
+        g: parseInt(m[2], 16),
+        b: parseInt(m[3], 16)
+      };
+    }
+
+    function styleCellSelect(selectEl) {
+      const value = selectEl.value;
+      const status = findStatusByName(value);
+      const cell = selectEl.closest('.cell');
+      if (!cell) return;
+
+      const label = cell.querySelector('.cell-label');
+      if (label) {
+        label.textContent = value || '';
+      }
+
+      const isToday = cell.classList.contains('today');
+      const baseBgToday = 'linear-gradient(to bottom, rgba(242,197,107,0.7), rgba(242,197,107,0.3))';
+      const baseBgNormal = 'rgba(5,6,11,0.7)';
+
+      if (!status) {
+        cell.style.background = isToday ? baseBgToday : baseBgNormal;
+        selectEl.style.borderColor = 'rgba(255,255,255,0.16)';
+        label.style.color = '#fdfdfd';
+        return;
+      }
+
+      const rgb = hexToRgb(status.color) || { r: 242, g: 197, b: 107 };
+      const r = rgb.r, g = rgb.g, b = rgb.b;
+
+      let bg;
+      if (isToday) {
+        bg = `linear-gradient(to bottom, rgba(${r},${g},${b},0.9), rgba(${r},${g},${b},0.5))`;
+      } else {
+        bg = `linear-gradient(135deg, rgba(${r},${g},${b},0.22), rgba(${r},${g},${b},0.6))`;
+      }
+      cell.style.background = bg;
+      selectEl.style.borderColor = `rgba(${r},${g},${b},0.85)`;
+
+      label.style.color = '#fdfdfd';
+    }
+
+    function styleAllCellSelects() {
+      document.querySelectorAll('.cell-select').forEach(styleCellSelect);
+    }
+
+    function cellKey(trackId, date) {
+      return trackId + '|' + date;
+    }
+
+    function updateSelectionStyles() {
+      document.querySelectorAll('.cell').forEach(cell => {
+        const t = cell.dataset.trackId;
+        const d = cell.dataset.date;
+        const key = (t && d) ? cellKey(t, d) : null;
+        if (key && selectedCells.has(key)) {
+          cell.classList.add('selected');
+        } else {
+          cell.classList.remove('selected');
+        }
+      });
+    }
+
+    let selectionAnchorCoords = null;
+
+    function setSelectionRectangle(anchor, target) {
+      if (!currentRows.length || !currentDates.length) return;
+      const minRow = Math.min(anchor.rowIndex, target.rowIndex);
+      const maxRow = Math.max(anchor.rowIndex, target.rowIndex);
+      const minCol = Math.min(anchor.colIndex, target.colIndex);
+      const maxCol = Math.max(anchor.colIndex, target.colIndex);
+
+      selectedCells.clear();
+      for (let r = minRow; r <= maxRow; r++) {
+        if (!currentRows[r]) continue;
+        const track = currentRows[r].track;
+        for (let c = minCol; c <= maxCol; c++) {
+          if (!currentDates[c]) continue;
+          const dateIso = formatDateISO(currentDates[c]);
+          selectedCells.add(cellKey(track.id, dateIso));
+        }
+      }
+      updateSelectionStyles();
+    }
+
+    function getSelectedCellCoords() {
+      const coords = [];
+      selectedCells.forEach(key => {
+        const [trackId, date] = key.split('|');
+        const rowIndex = trackIdToRowIndex[trackId];
+        const colIndex = dateToColIndex[date];
+        if (rowIndex != null && colIndex != null) {
+          coords.push({ trackId, date, rowIndex, colIndex });
+        }
+      });
+      return coords;
+    }
+
+    function renderProjects() {
+      const container = document.getElementById('projectList');
+      container.innerHTML = '';
+
+      const activeProjects = state.projects.filter(p => !p.archived);
+      const archivedProjects = state.projects.filter(p => p.archived);
+
+      if (!activeProjects.length && !archivedProjects.length) {
+        container.innerHTML = `
+          <div class="empty-message">
+            <strong>まだ案件がありません。</strong><br>
+            「案件を追加」から作成して、曲を登録してみてください。
+          </div>
+        `;
+        return;
+      }
+
+      // アクティブな案件
+      activeProjects.forEach(project => {
+        const tracksCount = (project.tracks || []).length;
+        const div = document.createElement('div');
+        div.className = 'project-item' + (project.id === selectedProjectId ? ' active' : '');
+        div.dataset.projectId = project.id;
+        div.innerHTML = `
+          <div class="project-name">
+            <span class="project-dot" style="background:${project.color || '#f2c56b'}"></span>
+            <span>${escapeHtml(project.name)}</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:4px;">
+            <button type="button"
+                    class="btn btn-ghost btn-sm btn-icon-only project-move-up-btn"
+                    data-project-id="${project.id}"
+                    title="上へ">
+              ▲
+            </button>
+            <button type="button"
+                    class="btn btn-ghost btn-sm btn-icon-only project-move-down-btn"
+                    data-project-id="${project.id}"
+                    title="下へ">
+              ▼
+            </button>
+            <div class="project-meta">${tracksCount}曲</div>
+            <button type="button"
+                    class="btn btn-ghost btn-sm btn-icon-only project-archive-btn"
+                    data-project-id="${project.id}"
+                    title="案件をアーカイブ">
+              📦
+            </button>
+            <button type="button"
+                    class="btn btn-ghost btn-sm btn-icon-only project-delete-btn"
+                    data-project-id="${project.id}"
+                    title="案件を削除">
+              🗑
+            </button>
+          </div>
+        `;
+        div.addEventListener('click', (e) => {
+          if (e.target.closest('.project-delete-btn') ||
+              e.target.closest('.project-move-up-btn') ||
+              e.target.closest('.project-move-down-btn') ||
+              e.target.closest('.project-archive-btn')) {
+            return;
+          }
+          selectedProjectId = project.id;
+          updateFilterButtons();
+          renderAll();
+        });
+        container.appendChild(div);
+      });
+
+      // アーカイブされた案件
+      if (archivedProjects.length) {
+        const archiveSection = document.createElement('div');
+        archiveSection.style.marginTop = '20px';
+        archiveSection.style.borderTop = '1px solid #e0e0e0';
+        archiveSection.style.paddingTop = '10px';
+        const archiveTitle = document.createElement('div');
+        archiveTitle.style.fontSize = '12px';
+        archiveTitle.style.fontWeight = 'bold';
+        archiveTitle.style.color = '#999';
+        archiveTitle.style.marginBottom = '8px';
+        archiveTitle.textContent = 'アーカイブ済み';
+        archiveSection.appendChild(archiveTitle);
+
+        archivedProjects.forEach(project => {
+          const tracksCount = (project.tracks || []).length;
+          const div = document.createElement('div');
+          div.className = 'project-item archived';
+          div.dataset.projectId = project.id;
+          div.style.opacity = '0.6';
+          div.innerHTML = `
+            <div class="project-name">
+              <span class="project-dot" style="background:${project.color || '#f2c56b'}"></span>
+              <span>${escapeHtml(project.name)}</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:4px;">
+              <div class="project-meta">${tracksCount}曲</div>
+              <button type="button"
+                      class="btn btn-ghost btn-sm btn-icon-only project-unarchive-btn"
+                      data-project-id="${project.id}"
+                      title="アーカイブを解除">
+                ↩️
+              </button>
+              <button type="button"
+                      class="btn btn-ghost btn-sm btn-icon-only project-delete-btn"
+                      data-project-id="${project.id}"
+                      title="案件を削除">
+                🗑
+              </button>
+            </div>
+          `;
+          archiveSection.appendChild(div);
+        });
+
+        container.appendChild(archiveSection);
+      }
+
+      // 案件削除
+      container.querySelectorAll('.project-delete-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const projectId = btn.dataset.projectId;
+          const project = state.projects.find(p => p.id === projectId);
+          if (!project) return;
+          const ok = window.confirm(`案件「${project.name}」を削除しますか？\n（案件内の曲とスケジュールもすべて削除されます）`);
+          if (!ok) return;
+
+          pushUndo();
+
+          (project.tracks || []).forEach(track => {
+            if (state.schedule[track.id]) {
+              delete state.schedule[track.id];
+            }
+          });
+
+          state.projects = state.projects.filter(p => p.id !== projectId);
+
+          if (selectedProjectId === projectId) {
+            selectedProjectId = state.projects.length ? state.projects.find(p => !p.archived)?.id || state.projects[0].id : null;
+          }
+
+          saveState();
+          selectedCells.clear();
+          lastFocusedCell = null;
+          clipboardData = null;
+          renderAll();
+        });
+      });
+
+      // 案件アーカイブ
+      container.querySelectorAll('.project-archive-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const projectId = btn.dataset.projectId;
+          const project = state.projects.find(p => p.id === projectId);
+          if (!project) return;
+
+          pushUndo();
+          project.archived = true;
+          if (selectedProjectId === projectId) {
+            selectedProjectId = state.projects.find(p => !p.archived)?.id || null;
+          }
+          saveState();
+          renderAll();
+        });
+      });
+
+      // アーカイブ解除
+      container.querySelectorAll('.project-unarchive-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const projectId = btn.dataset.projectId;
+          const project = state.projects.find(p => p.id === projectId);
+          if (!project) return;
+
+          pushUndo();
+          project.archived = false;
+          saveState();
+          renderAll();
+        });
+      });
+
+      // 案件並び替え（上へ／下へ）
+      container.querySelectorAll('.project-move-up-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          moveProject(btn.dataset.projectId, -1);
+        });
+      });
+      container.querySelectorAll('.project-move-down-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          moveProject(btn.dataset.projectId, 1);
+        });
+      });
+    }
+
+    function moveProject(projectId, delta) {
+      const idx = state.projects.findIndex(p => p.id === projectId);
+      if (idx < 0) return;
+      const newIdx = idx + delta;
+      if (newIdx < 0 || newIdx >= state.projects.length) return;
+
+      pushUndo();
+
+      const [p] = state.projects.splice(idx, 1);
+      state.projects.splice(newIdx, 0, p);
+      saveState();
+      renderAll();
+    }
+
+    function buildDateRange() {
+      const start = parseISO(state.startDate);
+      const days = state.daysToShow || DEFAULT_DAYS_TO_SHOW;
+      const dates = [];
+      for (let i = 0; i < days; i++) {
+        const d = addDays(start, i);
+        dates.push(d);
+      }
+      return dates;
+    }
+
+    function renderDateRangeLabel() {
+      const dates = buildDateRange();
+      const labelEl = document.getElementById('dateRangeLabel');
+
+      if (!dates.length) {
+        labelEl.textContent = '---';
+      } else {
+        const first = dates[0];
+        const last = dates[dates.length - 1];
+        const label =
+          `${first.getFullYear()}/${first.getMonth() + 1}/${first.getDate()} 〜 ` +
+          `${last.getFullYear()}/${last.getMonth() + 1}/${last.getDate()}`;
+        labelEl.textContent = label;
+      }
+
+      const daysInput = document.getElementById('daysToShowInput');
+      if (daysInput) {
+        daysInput.value = state.daysToShow || DEFAULT_DAYS_TO_SHOW;
+      }
+    }
+
+    function getFlatRows() {
+      const rows = [];
+      state.projects.forEach(project => {
+        if (project.archived) return; // アーカイブ済み案件はスキップ
+        if (showOnlySelected && selectedProjectId && project.id !== selectedProjectId) return;
+        (project.tracks || []).forEach(track => {
+          rows.push({ project, track });
+        });
+      });
+      return rows;
+    }
+
+     // ヒートマップ用：各日付の作業量を計算（トラック × 日付 で 1 カウント）
+    // state.schedule は「trackId ごとの { 日付ISO: 工程名 }」になっているので、
+    // それに合わせてシンプルにカウントします。
+    function computeColumnLoads(dates, rows) {
+      const loads = {};
+      const isoDates = dates.map(d => formatDateISO(d));
+
+      isoDates.forEach(iso => {
+        loads[iso] = 0;
+      });
+
+      rows.forEach(({ track }) => {
+        const sched = state.schedule[track.id] || {};
+        isoDates.forEach(iso => {
+          const value = sched[iso];
+          if (value && value !== 'none') {
+            loads[iso] += 1;
+          }
+        });
+      });
+
+      return loads;
+    }
+
+
+        function renderGrid() {
+      const wrapper = document.getElementById('gridWrapper');
+      const dates = buildDateRange();
+      const rows = getFlatRows();
+
+      // 現在の行・列情報を更新
+      currentRows = rows;
+      currentDates = dates;
+      trackIdToRowIndex = {};
+      dateToColIndex = {};
+
+      rows.forEach((rt, idx) => {
+        trackIdToRowIndex[rt.track.id] = idx;
+      });
+      dates.forEach((d, idx) => {
+        dateToColIndex[formatDateISO(d)] = idx;
+      });
+
+      if (!rows.length) {
+        wrapper.innerHTML = `
+          <div class="empty-message">
+            <strong>表示する曲がありません。</strong><br>
+            左の「案件を追加」→「曲を追加」で曲を登録すると、
+            ここに <strong>案件 × 曲 × 日付</strong> のグリッドが出てきます。
+          </div>
+        `;
+        return;
+      }
+
+      const todayIso = formatDateISO(toDateOnly(new Date()));
+      const statusOptions = getStatusOptions();
+
+      // 🔴 案件ごとの締切マップ
+      const projectDeadlineMap = {};
+      state.projects.forEach(p => {
+        if (p.deadline) projectDeadlineMap[p.id] = p.deadline;
+      });
+
+      // 🔥 ヒートマップ用の作業量
+      const heatmapEnabled = state.settings && state.settings.heatmapEnabled;
+      const columnLoads = heatmapEnabled ? computeColumnLoads(dates, rows) : {};
+      let maxLoad = 0;
+      if (heatmapEnabled) {
+        Object.values(columnLoads).forEach(v => {
+          if (v > maxLoad) maxLoad = v;
+        });
+        if (maxLoad < 1) maxLoad = 1;
+      }
+
+      // テーブルの HTML を構築
+      let html = '<table class="schedule-grid"><thead><tr>';
+
+      // 左上の固定ヘッダー
+      html += '<th class="row-header"></th>';
+
+      // 日付ヘッダー
+      dates.forEach(d => {
+        const iso = formatDateISO(d);
+        const isToday = iso === todayIso;
+        const isDeadlineHeader = Object.values(projectDeadlineMap).includes(iso);
+
+        let heatIntensity = 0;
+        if (heatmapEnabled) {
+          const count = columnLoads[iso] || 0;
+          // 5セル以上でほぼ最大になるようなスケーリング
+          heatIntensity = Math.max(0, Math.min(1, count / 5));
+        }
+
+        const headerClasses = [
+          'date-header',
+          'date-header-heat',     // CSS の ::before でヒートマップ表示
+          isToday ? 'today' : '',
+          isDeadlineHeader ? 'deadline' : ''
+        ].filter(Boolean).join(' ');
+
+        html += `
+          <th class="${headerClasses}"
+              data-date="${iso}"
+              style="--heat-intensity:${heatIntensity};">
+            <span class="date-header-main">${formatDisplayDate(d)}</span>
+            <span class="date-header-sub">${iso}</span>
+          </th>
+        `;
+      });
+
+      html += '</tr></thead><tbody>';
+
+      // 案件ごとのグループを作成
+      const groups = [];
+      state.projects.forEach(project => {
+        if (project.archived) return; // アーカイブ案件はグリッドから除外
+        if (showOnlySelected && selectedProjectId && project.id !== selectedProjectId) return;
+        const tracks = (project.tracks || []).filter(t => trackIdToRowIndex[t.id] != null);
+        if (!tracks.length) return;
+        groups.push({ project, tracks });
+      });
+
+      groups.forEach(group => {
+        const project = group.project;
+        const projectDeadlineIso = projectDeadlineMap[project.id] || null;
+        const projectDeadlineText = project.deadline
+          ? `締切: ${project.deadline}`
+          : '締切: 未設定';
+        const isCollapsed = !!project.collapsed;
+
+        // グループ行（Notion風トグル＋案件締切表示＋締切ボタン）
+        html += `
+          <tr class="project-group-row" data-project-id="${project.id}">
+            <td class="project-group-cell" colspan="${dates.length + 1}">
+              <div class="project-group-inner">
+                <span class="project-group-dot" style="background:${project.color || '#f2c56b'}"></span>
+                <span class="project-group-name">${escapeHtml(project.name)}</span>
+                <span class="project-group-deadline">${projectDeadlineText}</span>
+                <button type="button"
+                        class="btn btn-ghost btn-sm project-deadline-btn"
+                        data-project-id="${project.id}"
+                        title="この案件の締切日を設定">
+                  ⏱
+                </button>
+                <span class="project-group-toggle">
+                  ${isCollapsed ? '▶' : '▼'}
+                </span>
+              </div>
+            </td>
+          </tr>
+        `;
+
+        // 折りたたまれている場合は曲行を描かない
+        if (isCollapsed) {
+          return;
+        }
+
+        // 案件内の各トラック行
+        group.tracks.forEach(track => {
+          const rowIndex = trackIdToRowIndex[track.id];
+          const trackSchedule = state.schedule[track.id] || {};
+
+          html += '<tr>';
+
+          // 行ヘッダー（曲名・メモボタン・並び替え・削除）
+          html += `
+            <td class="row-header-cell">
+              <div class="row-header-inner">
+                <div class="row-header-top">
+                  <div class="row-header-title">${escapeHtml(track.name)}</div>
+                  <div class="row-header-actions">
+                    <button type="button"
+                            class="btn btn-ghost btn-sm btn-icon-only row-header-memo-btn"
+                            data-project-id="${project.id}"
+                            data-track-id="${track.id}"
+                            title="${escapeHtml(track.memo || 'メモ未設定')}">
+                      📝
+                    </button>
+                    <button type="button"
+                            class="btn btn-ghost btn-sm btn-icon-only row-move-up-btn"
+                            data-project-id="${project.id}"
+                            data-track-id="${track.id}"
+                            title="上へ">
+                      ▲
+                    </button>
+                    <button type="button"
+                            class="btn btn-ghost btn-sm btn-icon-only row-move-down-btn"
+                            data-project-id="${project.id}"
+                            data-track-id="${track.id}"
+                            title="下へ">
+                      ▼
+                    </button>
+                    <button type="button"
+                            class="btn btn-ghost btn-sm btn-icon-only row-delete-btn"
+                            data-track-id="${track.id}"
+                            title="この曲を削除">
+                      🗑
+                    </button>
+                  </div>
+                </div>
+                <div class="row-header-tag">${escapeHtml(project.name)}</div>
+              </div>
+            </td>
+          `;
+
+          // 各セル
+          dates.forEach((d, colIndex) => {
+            const iso = formatDateISO(d);
+            const isToday = iso === todayIso;
+            const isDeadlineCol = projectDeadlineIso && projectDeadlineIso === iso;
+            const value = trackSchedule[iso] || '';
+            const key = cellKey(track.id, iso);
+            const isSelected = selectedCells.has(key);
+            const cellNoteKey = cellKey(track.id, iso);
+            const hasNote = state.cellNotes[cellNoteKey];
+
+            const cellClasses = [
+              'cell',
+              isToday ? 'today' : '',
+              isSelected ? 'selected' : '',
+              isDeadlineCol ? 'deadline-col' : '',
+              hasNote ? 'has-note' : ''
+            ].filter(Boolean).join(' ');
+
+            html += `
+              <td class="${cellClasses}"
+                  data-track-id="${track.id}"
+                  data-date="${iso}"
+                  data-row-index="${rowIndex}"
+                  data-col-index="${colIndex}"
+                  data-status="${escapeHtml(value)}"
+                  title="${escapeHtml(hasNote ? hasNote : '')}">
+                <div class="cell-inner">
+                  <span class="cell-label">${value ? escapeHtml(value) : ''}</span>
+                  <button type="button"
+                          class="cell-dropdown-btn"
+                          data-track-id="${track.id}"
+                          data-date="${iso}"
+                          data-row-index="${rowIndex}"
+                          data-col-index="${colIndex}">▼</button>
+                  <select
+                    class="cell-select"
+                    data-track-id="${track.id}"
+                    data-date="${iso}"
+                    data-row-index="${rowIndex}"
+                    data-col-index="${colIndex}"
+                    onchange="handleCellChange(this)"
+                  >
+                    ${statusOptions.map(opt => {
+                      const label = opt || '---';
+                      const selected = opt === value ? 'selected' : '';
+                      return `<option value="${opt}" ${selected}>${label}</option>`;
+                    }).join('')}
+                  </select>
+                </div>
+              </td>
+            `;
+          });
+
+          html += '</tr>';
+        });
+      });
+
+      html += '</tbody></table>';
+      wrapper.innerHTML = html;
+
+      // セルのスタイル・イベントなどを再適用
+      styleAllCellSelects();
+      attachCellEvents();
+      attachRowEvents();
+      attachProjectGroupEvents();
+      updateSelectionStyles();
+      applyStatusFilter(); // 工程フィルタ反映
+    }
+
+
+    function applyGridSettings() {
+      if (!state.settings) {
+        state.settings = {
+          cellWidth: 70,
+          cellHeight: 28
+        };
+      }
+      const { cellWidth, cellHeight } = state.settings;
+      const root = document.documentElement;
+      root.style.setProperty('--cell-width', (cellWidth || 70) + 'px');
+      root.style.setProperty('--cell-height', (cellHeight || 28) + 'px');
+
+      let fs = 0.68;
+      if (cellWidth < 60 || cellHeight < 26) fs = 0.62;
+      if (cellWidth < 40 || cellHeight < 22) fs = 0.56;
+      if (cellWidth < 30 || cellHeight < 18) fs = 0.5;
+      if (cellWidth < 24 || cellHeight < 16) fs = 0.46;
+      root.style.setProperty('--cell-font-size', fs + 'rem');
+
+      const colInput = document.getElementById('colWidthInput');
+      const rowInput = document.getElementById('rowHeightInput');
+      if (colInput) colInput.value = cellWidth || 70;
+      if (rowInput) rowInput.value = cellHeight || 28;
+    }
+
+    function renderBackupStatus() {
+      const el = document.getElementById('backupStatus');
+      const text = document.getElementById('backupStatusText');
+
+      if (!state.lastBackupAt) {
+        text.textContent = 'まだありません';
+        el.classList.remove('overdue');
+        return;
+      }
+
+      const d = new Date(state.lastBackupAt);
+      if (isNaN(d.getTime())) {
+        text.textContent = '不明（再バックアップ推奨）';
+        el.classList.add('overdue');
+        return;
+      }
+
+      text.textContent = formatDateTimeForLabel(d);
+
+      const now = new Date();
+      const diffMs = now.getTime() - d.getTime();
+      const twoDaysMs = 2 * 24 * 60 * 60 * 1000;
+      if (diffMs > twoDaysMs) {
+        el.classList.add('overdue');
+      } else {
+        el.classList.remove('overdue');
+      }
+    }
+
+    function renderStatusFilterOptions() {
+      const select = document.getElementById('statusFilterSelect');
+      if (!select) return;
+      const statuses = state.statuses || [];
+      let html = `<option value="ALL">すべて</option>`;
+      statuses.forEach(st => {
+        const name = escapeHtml(st.name);
+        html += `<option value="${name}">${name}</option>`;
+      });
+      select.innerHTML = html;
+
+      if (currentStatusFilter !== 'ALL') {
+        const exists = statuses.some(s => s.name === currentStatusFilter);
+        select.value = exists ? currentStatusFilter : 'ALL';
+        if (!exists) currentStatusFilter = 'ALL';
+      } else {
+        select.value = 'ALL';
+      }
+    }
+
+    function renderAll() {
+      if (!selectedProjectId && state.projects.length) {
+        selectedProjectId = state.projects[0].id;
+      }
+      applyGridSettings();
+      renderProjects();
+      renderDateRangeLabel();
+      renderGrid();
+      renderBackupStatus();
+      renderStatusFilterOptions();
+      updateFilterButtons();
+      updateClientViewUI();
+      updateHeatmapToggleUI();
+    }
+
+    function createAltGhost(text, clientX, clientY) {
+      removeAltGhost();
+      if (!text) return;
+      const el = document.createElement('div');
+      el.className = 'alt-ghost';
+      el.textContent = text;
+      el.style.left = clientX + 'px';
+      el.style.top = clientY + 'px';
+      document.body.appendChild(el);
+      altDragGhostEl = el;
+    }
+
+    function updateAltGhostPosition(clientX, clientY) {
+      if (!altDragGhostEl) return;
+      altDragGhostEl.style.left = clientX + 'px';
+      altDragGhostEl.style.top = clientY + 'px';
+    }
+
+    function removeAltGhost() {
+      if (altDragGhostEl) {
+        altDragGhostEl.remove();
+        altDragGhostEl = null;
+      }
+    }
+
+    function attachCellEvents() {
+      const cells = document.querySelectorAll('.cell');
+      cells.forEach(cell => {
+        cell.addEventListener('mousedown', handleCellMouseDown);
+        cell.addEventListener('mouseenter', handleCellMouseEnter);
+        cell.addEventListener('mouseup', handleCellMouseUp);
+        cell.addEventListener('dblclick', (ev) => {
+          ev.stopPropagation();
+          const trackId = cell.dataset.trackId;
+          const dateIso = cell.dataset.date;
+          openCellNoteEditor(trackId, dateIso);
+        });
+      });
+
+      document.querySelectorAll('.cell-select').forEach(sel => {
+        sel.addEventListener('focus', () => {
+          const rowIndex = parseInt(sel.dataset.rowIndex, 10);
+          const colIndex = parseInt(sel.dataset.colIndex, 10);
+          const trackId = sel.dataset.trackId;
+          const date = sel.dataset.date;
+          lastFocusedCell = { rowIndex, colIndex, trackId, date };
+        });
+      });
+    }
+
+    function attachRowEvents() {
+      // トラックメモボタン
+      document.querySelectorAll('.row-header-memo-btn').forEach(btn => {
+        btn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          const projectId = btn.dataset.projectId;
+          const trackId = btn.dataset.trackId;
+          openTrackMemoEditor(projectId, trackId);
+        });
+      });
+
+      // 曲削除
+      document.querySelectorAll('.row-delete-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const trackId = btn.dataset.trackId;
+          const rowData = currentRows.find(r => r.track.id === trackId);
+          if (!rowData) return;
+
+          const { project, track } = rowData;
+          const ok = window.confirm(
+            `曲「${track.name}」を削除しますか？\n（この曲のスケジュールもすべて削除されます）`
+          );
+          if (!ok) return;
+
+          pushUndo();
+
+          const proj = state.projects.find(p => p.id === project.id);
+          if (proj) {
+            proj.tracks = (proj.tracks || []).filter(t => t.id !== trackId);
+          }
+          if (state.schedule[trackId]) {
+            delete state.schedule[trackId];
+          }
+
+          saveState();
+          selectedCells.clear();
+          lastFocusedCell = null;
+          clipboardData = null;
+          renderAll();
+        });
+      });
+
+      // 🔴 案件の締切設定ボタン
+      document.querySelectorAll('.project-deadline-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const projectId = btn.dataset.projectId;
+          const project = state.projects.find(p => p.id === projectId);
+          if (!project) return;
+
+          const current = project.deadline || '';
+          const input = window.prompt(
+            'この案件の締切日を YYYY-MM-DD 形式で入力してください（空で解除）',
+            current
+          );
+          if (input === null) return; // キャンセル
+
+          const trimmed = input.trim();
+          pushUndo();
+
+          if (!trimmed) {
+            delete project.deadline;
+          } else {
+            const m = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (!m) {
+              window.alert('日付は YYYY-MM-DD の形式で入力してください。例: 2025-12-31');
+              return;
+            }
+            project.deadline = trimmed;
+          }
+
+          saveState();
+          renderAll();
+        });
+      });
+
+      // 曲の並び替え（案件内で上下）
+      document.querySelectorAll('.row-move-up-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const projectId = btn.dataset.projectId;
+          const trackId = btn.dataset.trackId;
+          moveTrack(projectId, trackId, -1);
+        });
+      });
+
+      document.querySelectorAll('.row-move-down-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const projectId = btn.dataset.projectId;
+          const trackId = btn.dataset.trackId;
+          moveTrack(projectId, trackId, 1);
+        });
+      });
+    }
+
+    function attachProjectGroupEvents() {
+      document.querySelectorAll('.project-group-row').forEach(row => {
+        row.addEventListener('click', (e) => {
+          // 案件の締切ボタンをクリックしたときはトグルしない
+          if (e.target.closest('.project-deadline-btn')) return;
+
+          const projectId = row.dataset.projectId;
+          if (!projectId) return;
+
+          const project = state.projects.find(p => p.id === projectId);
+          if (!project) return;
+
+          pushUndo();
+          project.collapsed = !project.collapsed;
+          saveState();
+          renderGrid(); // グリッドのみ再描画
+        });
+      });
+    }
+
+    function moveTrack(projectId, trackId, delta) {
+      const project = state.projects.find(p => p.id === projectId);
+      if (!project || !project.tracks) return;
+      const idx = project.tracks.findIndex(t => t.id === trackId);
+      if (idx < 0) return;
+      const newIdx = idx + delta;
+      if (newIdx < 0 || newIdx >= project.tracks.length) return;
+
+      pushUndo();
+
+      const [t] = project.tracks.splice(idx, 1);
+      project.tracks.splice(newIdx, 0, t);
+      saveState();
+      renderAll();
+    }
+
+    function handleCellMouseDown(ev) {
+      if (ev.button !== 0) return; // 左クリックのみ
+      if (ev.target.closest('.cell-dropdown-btn')) return; // ▼ボタンは選択には使わない
+
+      const cell = ev.currentTarget;
+      const trackId = cell.dataset.trackId;
+      const date = cell.dataset.date;
+      const rowIndex = parseInt(cell.dataset.rowIndex, 10);
+      const colIndex = parseInt(cell.dataset.colIndex, 10);
+      const key = cellKey(trackId, date);
+
+      hideContextMenu();
+
+      if (ev.altKey) {
+        const trackSchedule = state.schedule[trackId] || {};
+        const value = trackSchedule[date] || '';
+        altDragSource = { trackId, date, value };
+        isAltDragging = true;
+        if (value) {
+          createAltGhost(value, ev.clientX, ev.clientY);
+        }
+        return;
+      }
+
+      isSelecting = true;
+      selectionAnchorCoords = { rowIndex, colIndex };
+
+      const multi = ev.ctrlKey || ev.metaKey;
+
+      if (multi) {
+        if (selectedCells.has(key)) {
+          selectedCells.delete(key);
+        } else {
+          selectedCells.add(key);
+        }
+      } else if (ev.shiftKey && lastFocusedCell) {
+        const anchor = {
+          rowIndex: lastFocusedCell.rowIndex,
+          colIndex: lastFocusedCell.colIndex
+        };
+        const target = { rowIndex, colIndex };
+        setSelectionRectangle(anchor, target);
+      } else {
+        selectedCells.clear();
+        selectedCells.add(key);
+      }
+
+      lastFocusedCell = { rowIndex, colIndex, trackId, date };
+      updateSelectionStyles();
+    }
+
+    function handleCellMouseEnter(ev) {
+      if (!isSelecting || !selectionAnchorCoords) return;
+      const cell = ev.currentTarget;
+      const rowIndex = parseInt(cell.dataset.rowIndex, 10);
+      const colIndex = parseInt(cell.dataset.colIndex, 10);
+      const target = { rowIndex, colIndex };
+      setSelectionRectangle(selectionAnchorCoords, target);
+    }
+
+    function handleCellMouseUp(ev) {
+      const cell = ev.currentTarget;
+      const trackId = cell.dataset.trackId;
+      const date = cell.dataset.date;
+      const rowIndex = parseInt(cell.dataset.rowIndex, 10);
+      const colIndex = parseInt(cell.dataset.colIndex, 10);
+
+      if (isAltDragging && altDragSource) {
+        pushUndo();
+        const src = altDragSource;
+        if (!state.schedule[trackId]) {
+          state.schedule[trackId] = {};
+        }
+        if (src.value) {
+          state.schedule[trackId][date] = src.value;
+        } else {
+          delete state.schedule[trackId][date];
+        }
+        saveState();
+        renderGrid();
+      }
+
+      isSelecting = false;
+      isAltDragging = false;
+      altDragSource = null;
+      removeAltGhost();
+
+      lastFocusedCell = { rowIndex, colIndex, trackId, date };
+    }
+
+    window.addEventListener('mouseup', () => {
+      isSelecting = false;
+      isAltDragging = false;
+      altDragSource = null;
+      removeAltGhost();
+    });
+
+    window.addEventListener('mousemove', (ev) => {
+      if (isAltDragging) {
+        updateAltGhostPosition(ev.clientX, ev.clientY);
+      }
+    });
+
+    window.handleCellChange = function(selectEl) {
+      const trackId = selectEl.dataset.trackId;
+      const date = selectEl.dataset.date;
+      const value = selectEl.value;
+      const key = cellKey(trackId, date);
+
+      function applyTo(trackId, date, value) {
+        if (!state.schedule[trackId]) {
+          state.schedule[trackId] = {};
+        }
+        if (value) {
+          state.schedule[trackId][date] = value;
+        } else {
+          delete state.schedule[trackId][date];
+        }
+      }
+
+      pushUndo();
+
+      if (selectedCells.size > 1 && selectedCells.has(key)) {
+        selectedCells.forEach(k => {
+          const [t, d] = k.split('|');
+          applyTo(t, d, value);
+        });
+      } else {
+        applyTo(trackId, date, value);
+      }
+
+      saveState();
+      renderGrid();
+    };
+
+    function updateFilterButtons() {
+      const allBtn = document.getElementById('showAllBtn');
+      const selBtn = document.getElementById('showSelectedBtn');
+      if (showOnlySelected) {
+        selBtn.classList.add('active');
+        allBtn.classList.remove('active');
+      } else {
+        allBtn.classList.add('active');
+        selBtn.classList.remove('active');
+      }
+    }
+
+    function openStatusEditor() {
+      const overlay = document.getElementById('statusEditorOverlay');
+      overlay.classList.remove('hidden');
+      renderStatusEditor();
+    }
+
+    function closeStatusEditor() {
+      const overlay = document.getElementById('statusEditorOverlay');
+      overlay.classList.add('hidden');
+    }
+
+    
+
+    function renderStatusEditor() {
+      const container = document.getElementById('statusListContainer');
+      container.innerHTML = '';
+
+      if (!state.statuses || !Array.isArray(state.statuses) || state.statuses.length === 0) {
+        state.statuses = DEFAULT_STATUSES;
+      }
+
+      state.statuses.forEach(st => {
+        const row = document.createElement('div');
+        row.className = 'status-row';
+        row.innerHTML = `
+          <input type="text" class="status-name-input" value="${escapeHtml(st.name)}" placeholder="工程名（例：作曲）">
+          <input type="color" class="status-color-input" value="${st.color || '#f5576c'}">
+          <button class="btn btn-ghost btn-sm status-delete-btn" type="button">✕</button>
+        `;
+        const deleteBtn = row.querySelector('.status-delete-btn');
+        deleteBtn.addEventListener('click', () => {
+          row.remove();
+        });
+        container.appendChild(row);
+      });
+    }
+
+    function collectStatusesFromEditor() {
+      const container = document.getElementById('statusListContainer');
+      const rows = Array.from(container.querySelectorAll('.status-row'));
+      const list = [];
+
+      rows.forEach(row => {
+        const nameInput = row.querySelector('.status-name-input');
+        const colorInput = row.querySelector('.status-color-input');
+        const name = nameInput.value.trim();
+        const color = colorInput.value || '#f5576c';
+        if (!name) return;
+        list.push({ name, color });
+      });
+
+      if (list.length === 0) {
+        return DEFAULT_STATUSES;
+      }
+      return list;
+    }
+
+    function showContextMenu(x, y) {
+      const menu = document.getElementById('contextMenu');
+      menu.classList.remove('hidden');
+
+      const rect = menu.getBoundingClientRect();
+      let px = x;
+      let py = y;
+      if (px + rect.width > window.innerWidth) {
+        px = window.innerWidth - rect.width - 4;
+      }
+      if (py + rect.height > window.innerHeight) {
+        py = window.innerHeight - rect.height - 4;
+      }
+      menu.style.left = px + 'px';
+      menu.style.top = py + 'px';
+    }
+
+    function hideContextMenu() {
+      const menu = document.getElementById('contextMenu');
+      menu.classList.add('hidden');
+      contextMenuTarget = null;
+    }
+
+    function handleContextMenuEvent(ev) {
+      const cell = ev.target.closest('.cell');
+      if (!cell) {
+        hideContextMenu();
+        return;
+      }
+      ev.preventDefault();
+
+      const trackId = cell.dataset.trackId;
+      const date = cell.dataset.date;
+      const rowIndex = parseInt(cell.dataset.rowIndex, 10);
+      const colIndex = parseInt(cell.dataset.colIndex, 10);
+
+      lastFocusedCell = { rowIndex, colIndex, trackId, date };
+      contextMenuTarget = { rowIndex, colIndex, trackId, date };
+
+      updateSelectionStyles();
+      showContextMenu(ev.clientX, ev.clientY);
+    }
+
+    function copySelectionToClipboard() {
+      let coords = getSelectedCellCoords();
+
+      if (!coords.length && lastFocusedCell && currentRows.length && currentDates.length) {
+        const { rowIndex, colIndex, trackId, date } = lastFocusedCell;
+        coords = [{ rowIndex, colIndex, trackId, date }];
+      }
+
+      if (!coords.length) return;
+
+      const rows = coords.map(c => c.rowIndex);
+      const cols = coords.map(c => c.colIndex);
+      const minRow = Math.min(...rows);
+      const maxRow = Math.max(...rows);
+      const minCol = Math.min(...cols);
+      const maxCol = Math.max(...cols);
+
+      const height = maxRow - minRow + 1;
+      const width = maxCol - minCol + 1;
+      const data = Array.from({ length: height }, () => Array.from({ length: width }, () => ''));
+
+      coords.forEach(c => {
+        const r = c.rowIndex - minRow;
+        const col = c.colIndex - minCol;
+        const trackId = c.trackId;
+        const date = c.date;
+        const value = (state.schedule[trackId] || {})[date] || '';
+        data[r][col] = value;
+      });
+
+      clipboardData = { data, width, height };
+    }
+
+    function pasteClipboardAtAnchor(anchorOverride) {
+      if (!clipboardData) return;
+
+      let anchor = anchorOverride || lastFocusedCell;
+      if (!anchor) {
+        const coords = getSelectedCellCoords();
+        if (!coords.length) return;
+        const rows = coords.map(c => c.rowIndex);
+        const cols = coords.map(c => c.colIndex);
+        anchor = {
+          rowIndex: Math.min(...rows),
+          colIndex: Math.min(...cols)
+        };
+      }
+
+      const { data, width, height } = clipboardData;
+
+      pushUndo();
+
+      for (let r = 0; r < height; r++) {
+        const targetRow = anchor.rowIndex + r;
+        if (!currentRows[targetRow]) continue;
+        const trackId = currentRows[targetRow].track.id;
+
+        for (let c = 0; c < width; c++) {
+          const targetCol = anchor.colIndex + c;
+          if (!currentDates[targetCol]) continue;
+          const dateIso = formatDateISO(currentDates[targetCol]);
+          const value = data[r][c];
+          if (!state.schedule[trackId]) {
+            state.schedule[trackId] = {};
+          }
+          if (value) {
+            state.schedule[trackId][dateIso] = value;
+          } else {
+            delete state.schedule[trackId][dateIso];
+          }
+        }
+      }
+
+      saveState();
+      renderGrid();
+    }
+
+    function clearSelectedCells() {
+      let coords = getSelectedCellCoords();
+
+      if (!coords.length && lastFocusedCell && currentRows.length && currentDates.length) {
+        const { rowIndex, colIndex, trackId, date } = lastFocusedCell;
+        coords = [{ rowIndex, colIndex, trackId, date }];
+      }
+
+      if (!coords.length) return;
+
+      pushUndo();
+
+      coords.forEach(c => {
+        if (state.schedule[c.trackId]) {
+          delete state.schedule[c.trackId][c.date];
+        }
+      });
+
+      saveState();
+      renderGrid();
+    }
+
+    function doExportBackup() {
+      const now = new Date();
+      state.lastBackupAt = now.toISOString();
+      saveState();
+      renderBackupStatus();
+
+      const dataStr = JSON.stringify(state, null, 2);
+      const blob = new Blob([dataStr], { type: 'application/json' });
+
+      const yyyy = now.getFullYear();
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const dd = String(now.getDate()).padStart(2, '0');
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mi = String(now.getMinutes()).padStart(2, '0');
+      const filename = `schedule_backup_${yyyy}${mm}${dd}_${hh}${mi}.json`;
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function escapeHtml(str) {
+      if (str == null) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    // --- 入力ポップアップ関連 ---
+
+    function openInputPopover(type, anchorBtn) {
+      const pop = document.getElementById('inputPopover');
+      const titleEl = document.getElementById('inputPopoverTitle');
+      const field = document.getElementById('inputPopoverField');
+      const okBtn = document.getElementById('inputPopoverOkBtn');
+
+      inputPopoverState.type = type;
+      inputPopoverState.anchorBtn = anchorBtn;
+
+      if (type === 'project') {
+        titleEl.textContent = '新しい案件名';
+        okBtn.textContent = '追加';
+      } else if (type === 'track') {
+        titleEl.textContent = '新しい曲名';
+        okBtn.textContent = '追加';
+      }
+
+      field.value = '';
+      pop.classList.remove('hidden');
+
+      const rect = anchorBtn.getBoundingClientRect();
+      pop.style.left = rect.left + 'px';
+      pop.style.top = (rect.bottom + 6) + 'px';
+
+      const popRect = pop.getBoundingClientRect();
+      let left = rect.left;
+      let top = rect.bottom + 6;
+
+      if (left + popRect.width > window.innerWidth - 8) {
+        left = window.innerWidth - popRect.width - 8;
+      }
+      if (top + popRect.height > window.innerHeight - 8) {
+        top = rect.top - popRect.height - 6;
+      }
+
+      pop.style.left = left + 'px';
+      pop.style.top = top + 'px';
+
+      field.focus();
+      field.select();
+    }
+
+    function closeInputPopover() {
+      const pop = document.getElementById('inputPopover');
+      pop.classList.add('hidden');
+      inputPopoverState.type = null;
+      inputPopoverState.anchorBtn = null;
+    }
+
+    function handleInputPopoverOk() {
+      const field = document.getElementById('inputPopoverField');
+      const value = field.value.trim();
+      if (!value) {
+        closeInputPopover();
+        return;
+      }
+
+      if (inputPopoverState.type === 'project') {
+        addProject(value);
+      } else if (inputPopoverState.type === 'track') {
+        addTrackToSelectedProject(value);
+      }
+
+      closeInputPopover();
+    }
+
+    function addProject(name) {
+      pushUndo();
+
+      const project = {
+        id: generateId(),
+        name: name.trim(),
+        color: '#f2c56b',
+        tracks: []
+      };
+      state.projects.push(project);
+      selectedProjectId = project.id;
+      saveState();
+      renderAll();
+    }
+
+    function addTrackToSelectedProject(name) {
+      if (!selectedProjectId) {
+        window.alert('まず左の案件リストから、曲を追加したい案件を選択してください。');
+        return;
+      }
+      const project = state.projects.find(p => p.id === selectedProjectId);
+      if (!project) {
+        window.alert('選択中の案件が見つかりませんでした。');
+        return;
+      }
+
+      pushUndo();
+
+      const track = { id: generateId(), name: name.trim() };
+      project.tracks.push(track);
+      saveState();
+      renderAll();
+    }
+
+    function getEarliestDateForTrack(trackId) {
+      const sched = state.schedule[trackId];
+      if (!sched) return null;
+      let min = null;
+      Object.keys(sched).forEach(dateStr => {
+        const dt = parseISO(dateStr);
+        if (isNaN(dt.getTime())) return;
+        if (!min || dt < min) min = dt;
+      });
+      return min;
+    }
+
+    function autoStairSort() {
+      pushUndo();
+
+      state.projects.forEach(project => {
+        if (!project.tracks || project.tracks.length <= 1) return;
+        project.tracks.sort((a, b) => {
+          const da = getEarliestDateForTrack(a.id);
+          const db = getEarliestDateForTrack(b.id);
+          if (da && db) {
+            const diff = da - db;
+            if (diff !== 0) return diff;
+            return a.name.localeCompare(b.name, 'ja');
+          } else if (da && !db) {
+            return -1;
+          } else if (!da && db) {
+            return 1;
+          } else {
+            return a.name.localeCompare(b.name, 'ja');
+          }
+        });
+      });
+      saveState();
+      renderAll();
+    }
+
+    function setClientViewMode(on) {
+      clientViewMode = on;
+      document.body.classList.toggle('client-view-mode', on);
+      updateClientViewUI();
+    }
+
+    function updateClientViewUI() {
+      const btn = document.getElementById('clientViewToggleBtn');
+      if (btn) {
+        if (clientViewMode) {
+          btn.classList.add('active');
+          btn.textContent = '👁 通常ビューに戻る';
+        } else {
+          btn.classList.remove('active');
+          btn.textContent = '👁 クライアントビュー';
+        }
+      }
+
+      const banner = document.getElementById('clientViewBanner');
+      if (banner) {
+        banner.classList.toggle('hidden', !clientViewMode);
+      }
+    }
+
+
+    function applyStatusFilter() {
+      const cells = document.querySelectorAll('.cell');
+      cells.forEach(cell => {
+        cell.classList.remove('dim');
+        if (currentStatusFilter && currentStatusFilter !== 'ALL') {
+          const statusName = cell.dataset.status || '';
+          if (!statusName || statusName !== currentStatusFilter) {
+            cell.classList.add('dim');
+          }
+        }
+      });
+    }
+
+    function setupEvents() {
+      const addProjectBtn = document.getElementById('addProjectBtn');
+      const addTrackBtn = document.getElementById('addTrackBtn');
+
+      addProjectBtn.addEventListener('click', () => {
+        openInputPopover('project', addProjectBtn);
+      });
+
+      addTrackBtn.addEventListener('click', () => {
+        openInputPopover('track', addTrackBtn);
+      });
+
+      document.getElementById('autoStairSortBtn').addEventListener('click', () => {
+        autoStairSort();
+      });
+
+      document.getElementById('showAllBtn').addEventListener('click', () => {
+        showOnlySelected = false;
+        updateFilterButtons();
+        renderAll();
+      });
+
+      document.getElementById('showSelectedBtn').addEventListener('click', () => {
+        showOnlySelected = true;
+        updateFilterButtons();
+        renderAll();
+      });
+
+      document.getElementById('prevRangeBtn').addEventListener('click', () => {
+        const days = state.daysToShow || DEFAULT_DAYS_TO_SHOW;
+        const start = parseISO(state.startDate);
+        const newStart = addDays(start, -days);
+        pushUndo();
+        state.startDate = formatDateISO(newStart);
+        saveState();
+        renderAll();
+      });
+
+      document.getElementById('nextRangeBtn').addEventListener('click', () => {
+        const days = state.daysToShow || DEFAULT_DAYS_TO_SHOW;
+        const start = parseISO(state.startDate);
+        const newStart = addDays(start, days);
+        pushUndo();
+        state.startDate = formatDateISO(newStart);
+        saveState();
+        renderAll();
+      });
+
+    
+
+      document.getElementById('exportBtn').addEventListener('click', () => {
+        doExportBackup();
+      });
+
+      document.getElementById('importInput').addEventListener('change', (ev) => {
+        const file = ev.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = e => {
+          try {
+            const raw = e.target.result;
+            const parsed = JSON.parse(raw);
+
+            // ★ 読み込んだ状態を現在のバージョン仕様に合わせて補正
+            const data = normalizeImportedState(parsed);
+
+            // ここまで来たら正常とみなして state に反映
+            state = data;
+            undoStack = []; // 別ファイル読み込み時は Undo リセット
+            selectedCells.clear();
+            lastFocusedCell = null;
+            clipboardData = null;
+
+            saveState();
+            renderAll();
+            window.alert('JSONから状態を読み込みました。');
+          } catch (err) {
+            console.error(err);
+            window.alert('JSONの形式が正しくないようです。');
+          } finally {
+            // 同じファイルを続けて読み込めるようにリセット
+            ev.target.value = '';
+          }
+        };
+        reader.readAsText(file, 'utf-8');
+      });
+
+
+      // ▼ボタン → ネイティブのセレクトを開く
+      document.addEventListener('click', (ev) => {
+        const btn = ev.target.closest('.cell-dropdown-btn');
+        if (!btn) return;
+
+        const cell = btn.closest('.cell');
+        if (!cell) return;
+        const select = cell.querySelector('.cell-select');
+        if (!select) return;
+
+        if (typeof select.showPicker === 'function') {
+          select.showPicker();
+        } else {
+          select.focus();
+          const evt = new MouseEvent('mousedown', {
+            bubbles: true,
+            cancelable: true,
+            view: window
+          });
+          select.dispatchEvent(evt);
+          select.click();
+        }
+      });
+
+      // コンテキストメニュー（右クリック）
+      document.addEventListener('contextmenu', handleContextMenuEvent);
+      document.addEventListener('mousedown', (ev) => {
+        const menu = document.getElementById('contextMenu');
+        if (!menu.classList.contains('hidden')) {
+          if (!ev.target.closest('#contextMenu')) {
+            hideContextMenu();
+          }
+        }
+
+        const pop = document.getElementById('inputPopover');
+        if (!pop.classList.contains('hidden')) {
+          if (!ev.target.closest('#inputPopover') &&
+              !ev.target.closest('#addProjectBtn') &&
+              !ev.target.closest('#addTrackBtn')) {
+            closeInputPopover();
+          }
+        }
+      });
+      window.addEventListener('scroll', () => {
+        hideContextMenu();
+      }, true);
+
+      document.querySelectorAll('#contextMenu .context-menu-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const action = item.dataset.action;
+          if (action === 'copy') {
+            copySelectionToClipboard();
+          } else if (action === 'paste') {
+            pasteClipboardAtAnchor(contextMenuTarget || lastFocusedCell || null);
+          } else if (action === 'clear') {
+            clearSelectedCells();
+          }
+          hideContextMenu();
+        });
+      });
+
+      // 工程フィルタ
+      const filterSelect = document.getElementById('statusFilterSelect');
+      filterSelect.addEventListener('change', () => {
+        currentStatusFilter = filterSelect.value;
+        applyStatusFilter();
+      });
+
+      // Undoボタン
+      document.getElementById('undoBtn').addEventListener('click', () => {
+        undoLast();
+      });
+
+      // クライアントビュー
+      document.getElementById('clientViewToggleBtn').addEventListener('click', () => {
+        setClientViewMode(!clientViewMode);
+      });
+
+      const clientViewBackBtn = document.getElementById('clientViewBackBtn');
+      if (clientViewBackBtn) {
+        clientViewBackBtn.addEventListener('click', () => {
+          setClientViewMode(false);
+        });
+      }
+
+      // キーボードショートカット
+      document.addEventListener('keydown', (ev) => {
+        const meta = ev.ctrlKey || ev.metaKey;
+        const target = ev.target;
+        const tag = target.tagName;
+        const isCellSelect = (tag === 'SELECT' && target.classList.contains('cell-select'));
+
+        const inTextField =
+          (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) &&
+          !isCellSelect;
+
+        const pop = document.getElementById('inputPopover');
+        const popVisible = !pop.classList.contains('hidden');
+        if (popVisible) {
+          if (ev.key === 'Enter') {
+            ev.preventDefault();
+            handleInputPopoverOk();
+            return;
+          }
+          if (ev.key === 'Escape') {
+            ev.preventDefault();
+            closeInputPopover();
+            return;
+          }
+        }
+
+        if (meta && (ev.key === 's' || ev.key === 'S')) {
+          ev.preventDefault();
+          doExportBackup();
+          return;
+        }
+
+        if (meta && (ev.key === 'c' || ev.key === 'C')) {
+          ev.preventDefault();
+          copySelectionToClipboard();
+          return;
+        }
+
+        if (meta && (ev.key === 'v' || ev.key === 'V')) {
+          ev.preventDefault();
+          pasteClipboardAtAnchor();
+          return;
+        }
+
+        if (meta && (ev.key === 'z' || ev.key === 'Z')) {
+          if (inTextField) return;
+          ev.preventDefault();
+          undoLast();
+          return;
+        }
+
+        if ((ev.key === 'Delete' || ev.key === 'Backspace')) {
+          if (inTextField) return;
+          ev.preventDefault();
+          clearSelectedCells();
+          return;
+        }
+      });
+
+      const colInput = document.getElementById('colWidthInput');
+      const rowInput = document.getElementById('rowHeightInput');
+
+      if (colInput) {
+        colInput.addEventListener('change', () => {
+          let v = parseInt(colInput.value, 10);
+          if (isNaN(v)) v = 70;
+          v = Math.max(20, Math.min(200, v));
+          pushUndo();
+          state.settings.cellWidth = v;
+          saveState();
+          applyGridSettings();
+          renderGrid();
+        });
+      }
+
+      if (rowInput) {
+        rowInput.addEventListener('change', () => {
+          let v = parseInt(rowInput.value, 10);
+          if (isNaN(v)) v = 28;
+          v = Math.max(14, Math.min(80, v));
+          pushUndo();
+          state.settings.cellHeight = v;
+          saveState();
+          applyGridSettings();
+          renderGrid();
+        });
+      }
+
+      const daysInput = document.getElementById('daysToShowInput');
+      if (daysInput) {
+        daysInput.addEventListener('change', () => {
+          let v = parseInt(daysInput.value, 10);
+          if (isNaN(v)) v = DEFAULT_DAYS_TO_SHOW;
+          v = Math.max(7, Math.min(90, v));
+          pushUndo();
+          state.daysToShow = v;
+          saveState();
+          renderAll();
+        });
+      }
+
+      document.getElementById('editStatusesBtn').addEventListener('click', () => {
+        openStatusEditor();
+      });
+      document.getElementById('closeStatusEditorBtn').addEventListener('click', () => {
+        closeStatusEditor();
+      });
+      document.getElementById('addStatusRowBtn').addEventListener('click', () => {
+        const container = document.getElementById('statusListContainer');
+        const row = document.createElement('div');
+        row.className = 'status-row';
+        row.innerHTML = `
+          <input type="text" class="status-name-input" value="" placeholder="工程名（例：リミックス）">
+          <input type="color" class="status-color-input" value="#f5576c">
+          <button class="btn btn-ghost btn-sm status-delete-btn" type="button">✕</button>
+        `;
+        row.querySelector('.status-delete-btn').addEventListener('click', () => {
+          row.remove();
+        });
+        container.appendChild(row);
+      });
+      document.getElementById('saveStatusesBtn').addEventListener('click', () => {
+        const list = collectStatusesFromEditor();
+        pushUndo();
+        state.statuses = list;
+        saveState();
+        closeStatusEditor();
+        renderAll();
+      });
+
+      document.getElementById('statusEditorOverlay').addEventListener('click', (e) => {
+        if (e.target.id === 'statusEditorOverlay') {
+          closeStatusEditor();
+        }
+      });
+      document.getElementById('inputPopoverCancelBtn').addEventListener('click', () => {
+        closeInputPopover();
+      });
+      document.getElementById('inputPopoverOkBtn').addEventListener('click', () => {
+        handleInputPopoverOk();
+      });
+
+      // トラックメモボタン
+      document.addEventListener('click', (ev) => {
+        const btn = ev.target.closest('.row-header-memo-btn');
+        if (!btn) return;
+        ev.stopPropagation();
+        const projectId = btn.dataset.projectId;
+        const trackId = btn.dataset.trackId;
+        openTrackMemoEditor(projectId, trackId);
+      });
+
+            // トラックメモ / セルノート モーダル操作（documentへのイベント委譲）
+      document.addEventListener('click', (e) => {
+        const target = e.target;
+
+        // ▼ トラックメモ：保存ボタン
+        if (target.id === 'trackMemoSaveBtn') {
+          e.preventDefault();
+          saveTrackMemo();
+          return;
+        }
+
+        // ▼ トラックメモ：✕ボタン
+        if (target.id === 'trackMemoCancelBtn') {
+          e.preventDefault();
+          closeTrackMemoEditor();
+          return;
+        }
+
+        // ▼ トラックメモ：オーバーレイクリックで閉じる
+        if (target.id === 'trackMemoOverlay') {
+          e.preventDefault();
+          closeTrackMemoEditor();
+          return;
+        }
+
+        // ▼ セルノート：保存ボタン
+        if (target.id === 'cellNoteSaveBtn') {
+          e.preventDefault();
+          saveCellNote();
+          return;
+        }
+
+        // ▼ セルノート：✕ボタン
+        if (target.id === 'cellNoteCloseBtn') {
+          e.preventDefault();
+          closeCellNoteEditor();
+          return;
+        }
+
+        // ▼ セルノート：オーバーレイクリックで閉じる
+        if (target.id === 'cellNoteOverlay') {
+          e.preventDefault();
+          closeCellNoteEditor();
+          return;
+        }
+      });
+
+
+      // ヒートマップトグル
+      document.getElementById('heatmapToggleBtn')?.addEventListener('click', () => {
+        if (!state.settings) state.settings = {};
+        pushUndo();
+        state.settings.heatmapEnabled = !state.settings.heatmapEnabled;
+        saveState();
+        renderAll();
+      });
+    }
+
+    function updateHeatmapToggleUI() {
+      const btn = document.getElementById('heatmapToggleBtn');
+      if (!btn) return;
+      const enabled = state.settings && state.settings.heatmapEnabled;
+      if (enabled) {
+        btn.classList.add('active');
+        btn.textContent = '🔥 ヒートマップON';
+      } else {
+        btn.classList.remove('active');
+        btn.textContent = '🔥 ヒートマップOFF';
+      }
+    }
+
+    function openTrackMemoEditor(projectId, trackId) {
+      trackMemoState.projectId = projectId;
+      trackMemoState.trackId = trackId;
+
+      const project = state.projects.find(p => p.id === projectId);
+      const track = project?.tracks.find(t => t.id === trackId);
+      if (!project || !track) return;
+
+      const modal = document.getElementById('trackMemoOverlay');
+      const title = document.getElementById('trackMemoTitle');
+      const textarea = document.getElementById('trackMemoText');
+
+      title.textContent = `${escapeHtml(project.name)} - ${escapeHtml(track.name)}`;
+      textarea.value = track.memo || '';
+      modal.classList.remove('hidden');
+      textarea.focus();
+    }
+
+    function closeTrackMemoEditor() {
+      const modal = document.getElementById('trackMemoOverlay');
+      if (modal) modal.classList.add('hidden');
+      trackMemoState.projectId = null;
+      trackMemoState.trackId = null;
+    }
+
+    function saveTrackMemo() {
+      if (!trackMemoState.projectId || !trackMemoState.trackId) return;
+
+      const project = state.projects.find(p => p.id === trackMemoState.projectId);
+      const track = project?.tracks.find(t => t.id === trackMemoState.trackId);
+      if (!project || !track) {
+        closeTrackMemoEditor();
+        return;
+      }
+
+      const textarea = document.getElementById('trackMemoText');
+      const newMemo = textarea.value.trim();
+
+      pushUndo();
+      track.memo = newMemo;
+      saveState();
+      closeTrackMemoEditor();
+      renderGrid();
+    }
+
+    function openCellNoteEditor(trackId, dateIso) {
+      cellNoteState.trackId = trackId;
+      cellNoteState.dateIso = dateIso;
+
+      const modal = document.getElementById('cellNoteOverlay');
+      const title = document.getElementById('cellNoteTitle');
+      const textarea = document.getElementById('cellNoteTextarea');
+
+      const cellNoteKey = cellKey(trackId, dateIso);
+      const currentNote = state.cellNotes[cellNoteKey] || '';
+
+      title.textContent = `${dateIso} のメモ`;
+      textarea.value = currentNote;
+      modal.classList.remove('hidden');
+      textarea.focus();
+    }
+
+    function closeCellNoteEditor() {
+      const modal = document.getElementById('cellNoteOverlay');
+      if (modal) modal.classList.add('hidden');
+      cellNoteState.trackId = null;
+      cellNoteState.dateIso = null;
+    }
+
+    function saveCellNote() {
+      if (!cellNoteState.trackId || !cellNoteState.dateIso) return;
+
+      const textarea = document.getElementById('cellNoteTextarea');
+      const newNote = textarea.value.trim();
+      const cellNoteKey = cellKey(cellNoteState.trackId, cellNoteState.dateIso);
+
+      pushUndo();
+      if (newNote) {
+        state.cellNotes[cellNoteKey] = newNote;
+      } else {
+        delete state.cellNotes[cellNoteKey];
+      }
+      saveState();
+      closeCellNoteEditor();
+      renderGrid();
+    }
+    // --- 日次ロール（毎日 4:00 に「今日」スタート＆過去セル削除）関連 ---
+
+    function ensureSettingsObject() {
+      if (!state.settings) state.settings = {};
+    }
+
+
+
+        // 「毎日4:00を過ぎていたら」startDateを今日にそろえる（過去セルは消さない）
+    function autoDailyRollIfNeeded() {
+      ensureSettingsObject();
+
+      const now = new Date();
+      const todayIso = formatDateISO(toDateOnly(now));
+
+      const lastRoll = state.settings.lastRollDate || null;
+
+      // 「4:00 を過ぎているか？」
+      const hasPassedRollTime =
+        now.getHours() > 4 || (now.getHours() === 4 && now.getMinutes() >= 0);
+
+      // まだ今日分のロールをしていなくて、4:00 を過ぎていたら実行
+      if (hasPassedRollTime && lastRoll !== todayIso) {
+        pushUndo();
+
+        // ★過去セルは残したまま、表示開始日だけ今日に合わせる
+        state.startDate = todayIso;
+
+        // 今日分はロール済みとして記録
+        state.settings.lastRollDate = todayIso;
+
+        saveState();
+      }
+    }
+
+
+    // 初回実行 + 以後1分おきチェック
+    function startAutoRollTimer() {
+      // 起動時に一度チェック
+      autoDailyRollIfNeeded();
+      // その後は1分ごとに「4:00 を過ぎて日付が変わっていないか」を確認
+      setInterval(autoDailyRollIfNeeded, 60 * 1000);
+    }
+
+
+function applyGridSettingsOnce() {
+      applyGridSettings();
+    }
+
+    setupEvents();
+    applyGridSettingsOnce();
+
+    // ★ここで日次ロールのタイマーをスタート
+    startAutoRollTimer();
+
+    // ロール後の状態で描画
+    renderAll();
+  </script>
+
+  <!-- トラックメモ編集モーダル -->
+  <div class="modal-overlay hidden" id="trackMemoOverlay">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" id="trackMemoTitle">トラックメモ</div>
+        <button class="btn btn-ghost btn-sm" id="trackMemoCancelBtn">✕</button>
+      </div>
+      <div class="modal-body">
+        <textarea id="trackMemoText"
+                  style="width:100%; min-height:120px; resize:vertical;
+                         border-radius:8px; border:1px solid rgba(255,255,255,0.16);
+                         background:rgba(0,0,0,0.45); color:var(--text-main);
+                         font-size:0.8rem; padding:6px 8px; outline:none;"></textarea>
+      </div>
+      <div class="modal-footer">
+        <span class="modal-note">※案件 × 曲に紐づくメモです（工程とは別管理）。</span>
+        <button class="btn btn-primary btn-sm" id="trackMemoSaveBtn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- セルメモ編集モーダル -->
+  <div class="modal-overlay hidden" id="cellNoteOverlay">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" id="cellNoteTitle">セルメモ</div>
+        <button class="btn btn-ghost btn-sm" id="cellNoteCloseBtn">✕</button>
+      </div>
+      <div class="modal-body">
+        <textarea id="cellNoteTextarea"
+                  style="width:100%; min-height:100px; resize:vertical;
+                         border-radius:8px; border:1px solid rgba(255,255,255,0.16);
+                         background:rgba(0,0,0,0.45); color:var(--text-main);
+                         font-size:0.8rem; padding:6px 8px; outline:none;"></textarea>
+      </div>
+      <div class="modal-footer">
+        <span class="modal-note">※このセルだけに紐づくメモです（工程とは別）。</span>
+        <button class="btn btn-primary btn-sm" id="cellNoteSaveBtn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="cellTooltip" class="cell-tooltip hidden"></div>
+
+</body>
+</html>
