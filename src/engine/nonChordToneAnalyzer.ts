@@ -1,7 +1,6 @@
 import { NonChordToneType, ChordSegment } from '../types/analysis';
 import { NoteData } from '../types/midi';
 import { evaluateNoteRelation, CHORD_DEFINITIONS } from '../music/chords';
-import { getPitchClass } from '../music/pitch';
 
 export interface NonChordToneResult {
   type: NonChordToneType;
@@ -15,6 +14,7 @@ export function analyzeNonChordTone(
   note: NoteData,
   trackNotes: NoteData[],
   currentSegment: ChordSegment,
+  melodicConfidence: number = 1.0,
   nextSegment?: ChordSegment,
   prevSegment?: ChordSegment
 ): NonChordToneResult {
@@ -29,24 +29,36 @@ export function analyzeNonChordTone(
     };
   }
 
-  // Find preceding and succeeding notes on the same track
-  const sortedTrackNotes = [...trackNotes].sort((a, b) => a.startTicks - b.startTicks);
-  const currentIndex = sortedTrackNotes.findIndex(n => n.id === note.id);
-  
-  const prevNote = currentIndex > 0 ? sortedTrackNotes[currentIndex - 1] : undefined;
-  const nextNote = currentIndex >= 0 && currentIndex < sortedTrackNotes.length - 1 ? sortedTrackNotes[currentIndex + 1] : undefined;
+  // If track is heavily polyphonic (piano chords, dense pads with low melodic confidence),
+  // suppress linear stepwise passing/neighbor tone deduction to avoid false positive voice leading
+  if (melodicConfidence < 0.35) {
+    return {
+      type: 'none',
+      isResolved: false,
+      resolutionDescription: 'Polyphonic track - linear resolution suppressed',
+      reasons: ['Polyphonic voice texture'],
+    };
+  }
+
+  // Filter out simultaneous notes (notes sounding at the exact same start tick) to get distinct sequential notes
+  const sequentialNotes = trackNotes
+    .filter(n => Math.abs(n.startTicks - note.startTicks) > 20 || n.id === note.id)
+    .sort((a, b) => a.startTicks - b.startTicks);
+
+  const currentIndex = sequentialNotes.findIndex(n => n.id === note.id);
+  const prevNote = currentIndex > 0 ? sequentialNotes[currentIndex - 1] : undefined;
+  const nextNote = currentIndex >= 0 && currentIndex < sequentialNotes.length - 1 ? sequentialNotes[currentIndex + 1] : undefined;
 
   const reasons: string[] = [];
 
-  // 1. Neighbor Tone check: E -> F -> E (step away and return)
+  // 1. Neighbor Tone check: E -> F -> E
   if (prevNote && nextNote) {
     const diffPrev = note.pitch - prevNote.pitch;
     const diffNext = nextNote.pitch - note.pitch;
     
-    // Neighbor: moves by 1 or 2 semitones from prev, then returns back to same pitch
     if (prevNote.pitch === nextNote.pitch && (Math.abs(diffPrev) === 1 || Math.abs(diffPrev) === 2)) {
       const neighborLabel = Math.abs(diffPrev) === 1 ? 'Chromatic Neighbor Tone' : 'Neighbor Tone';
-      reasons.push(`${neighborLabel} (moves to ${note.name} and returns to ${nextNote.name})`);
+      reasons.push(`${neighborLabel} (${prevNote.name} → ${note.name} → ${nextNote.name})`);
       return {
         type: 'neighbor',
         label: neighborLabel,
@@ -76,7 +88,7 @@ export function analyzeNonChordTone(
     }
   }
 
-  // 3. Anticipation check: note occurs right before next chord segment, and is a Chord Tone of that next segment
+  // 3. Anticipation check
   if (nextSegment && nextSegment.id !== currentSegment.id) {
     const ticksUntilNextChord = nextSegment.startTicks - note.startTicks;
     const isCloseToChordChange = ticksUntilNextChord <= (note.durationTicks * 1.5);
@@ -94,7 +106,7 @@ export function analyzeNonChordTone(
     }
   }
 
-  // 4. Suspension check: note held from previous segment where it was a Chord Tone, resolving down stepwise
+  // 4. Suspension check
   if (prevSegment && prevSegment.id !== currentSegment.id && nextNote) {
     const prevRelation = evaluateNoteRelation(note.pitch, prevSegment.root, prevSegment.type, prevSegment.bass);
     const stepDown = note.pitch - nextNote.pitch;
@@ -112,7 +124,6 @@ export function analyzeNonChordTone(
     }
   }
 
-  // If next note exists and is stepwise resolution to a chord tone
   if (nextNote) {
     const stepDiff = Math.abs(note.pitch - nextNote.pitch);
     const nextRelation = evaluateNoteRelation(nextNote.pitch, currentSegment.root, currentSegment.type, currentSegment.bass);

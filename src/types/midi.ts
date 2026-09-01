@@ -1,8 +1,11 @@
+import { Midi } from '@tonejs/midi';
+
 export type TrackRole = 
   | 'auto' 
   | 'melody' 
   | 'harmony' 
   | 'bass' 
+  | 'chord_guide'
   | 'percussion' 
   | 'keyswitch' 
   | 'ignore';
@@ -16,12 +19,13 @@ export type RangePreset =
 
 export interface TrackSettings {
   trackId: number;
+  sourceTrackIndex: number;
   name: string;
   channel: number;
   role: TrackRole;
   detectedRole?: TrackRole;
   rangePreset: RangePreset;
-  analysisMinPitch: number; // 0 to 127 (e.g. C1 is 24, C2 is 36)
+  analysisMinPitch: number; // 0 to 127
   analysisMaxPitch: number; // 0 to 127
   ignore: boolean;
   color: string;
@@ -30,11 +34,14 @@ export interface TrackSettings {
   visible: boolean;
   hasKeyswitchWarning?: boolean;
   keyswitchPitchCount?: number;
+  melodicConfidence?: number; // 0.0 to 1.0 (higher = monophonic melodic line)
 }
 
 export interface NoteData {
   id: string; // unique note id: `${trackId}_${index}_${startTicks}`
   trackId: number;
+  sourceTrackIndex: number;
+  sourceNoteIndex: number;
   pitch: number; // 0-127
   pitchClass: number; // 0-11 (C=0, C#=1 ... B=11)
   octave: number;
@@ -45,7 +52,7 @@ export interface NoteData {
   startSeconds: number;
   durationSeconds: number;
   endSeconds: number;
-  velocity: number; // 0-1 (or 0-127 normalized to 0-1)
+  velocity: number; // 0-1
   channel: number;
   originalPitch: number; // for reset tracking
 }
@@ -65,20 +72,24 @@ export interface TempoInfo {
 
 export interface TrackData {
   id: number;
+  sourceTrackIndex: number;
   name: string;
   channel: number;
   instrument?: string;
   notes: NoteData[];
   settings: TrackSettings;
+  melodicConfidence: number; // 0.0 to 1.0
 }
 
 export interface MidiData {
   name: string;
-  ppq: number; // Pulses (ticks) per quarter note
+  ppq: number;
   durationTicks: number;
   durationSeconds: number;
+  totalBars: number;
   tempos: TempoInfo[];
   timeSignatures: TimeSignatureInfo[];
   tracks: TrackData[];
-  notes: NoteData[]; // flattened list of all notes
+  notes: NoteData[];
+  rawMidi?: Midi; // Low-level parsed Standard MIDI object for nondestructive export
 }

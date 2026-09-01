@@ -35,6 +35,7 @@ interface AppContextValue extends AppState {
   selectSegment: (segmentId: string | null) => void;
   setFilter: (filter: FilterType) => void;
   setColorMode: (mode: ColorMode) => void;
+  setShowLowConfidenceOnly: (show: boolean) => void;
   navigateWarning: (direction: 'prev' | 'next') => void;
   setZoomX: (zoom: number | ((prev: number) => number)) => void;
   setZoomY: (zoom: number | ((prev: number) => number)) => void;
@@ -64,18 +65,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterType>('ALL');
   const [colorMode, setColorMode] = useState<ColorMode>('risk');
+  const [showLowConfidenceOnly, setShowLowConfidenceOnly] = useState<boolean>(false);
   const [analysisSettings, setAnalysisSettings] = useState<AnalysisSettings>(DEFAULT_ANALYSIS_SETTINGS);
 
   const [past, setPast] = useState<HistoryState[]>([]);
   const [future, setFuture] = useState<HistoryState[]>([]);
 
-  const [zoomX, setZoomXState] = useState<number>(0.15); // px per tick
-  const [zoomY, setZoomYState] = useState<number>(14);   // px per key
+  const [zoomX, setZoomXState] = useState<number>(0.15);
+  const [zoomY, setZoomYState] = useState<number>(14);
   const [scrollLeft, setScrollLeft] = useState<number>(0);
   const [scrollTop, setScrollTop] = useState<number>(500);
 
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [playheadTicks, setPlayheadTicks] = useState<number>(0);
+
+  // Analysis progress & decoupled error state (Phase C)
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [analysisStage, setAnalysisStage] = useState<string>('');
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   const [isSettingsOpen, setSettingsOpen] = useState<boolean>(false);
   const [activeDemoId, setActiveDemoId] = useState<string | null>(null);
@@ -86,7 +93,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const animFrameRef = useRef<number | null>(null);
   const lastPlayTimeRef = useRef<number>(0);
 
-  // Helper to clone notes and tracks for undo snapshots
   const takeSnapshot = (midi: MidiData, segs: ChordSegment[]): HistoryState => ({
     notes: midi.notes.map(n => ({ ...n })),
     tracks: midi.tracks.map(t => ({
@@ -100,21 +106,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     })),
   });
 
-  // Re-run analysis on working MIDI
+  // Decoupled analysis executor with error handling
   const runAnalysis = useCallback((
     midi: MidiData,
     settings: AnalysisSettings,
     existingSegs: ChordSegment[] = []
   ) => {
-    const result = analyzeMidi(midi, settings, existingSegs);
-    setSegments(result.segments);
-    setAnalyses(result.analyses);
-    setStatusCounts(result.statusCounts);
+    setIsAnalyzing(true);
+    setAnalysisStage('Analyzing harmony...');
+    setAnalysisError(null);
+
+    try {
+      const result = analyzeMidi(midi, settings, existingSegs);
+      setSegments(result.segments);
+      setAnalyses(result.analyses);
+      setStatusCounts(result.statusCounts);
+      setIsAnalyzing(false);
+      setAnalysisStage('Complete');
+    } catch (err: any) {
+      console.error('Harmony analysis failure:', err);
+      setAnalysisError(err?.message || 'Failed to analyze harmony');
+      setIsAnalyzing(false);
+    }
   }, []);
 
-  // Load ArrayBuffer
   const loadMidiBuffer = useCallback((buffer: ArrayBuffer, fileName: string) => {
     try {
+      setIsAnalyzing(true);
+      setAnalysisStage('Reading MIDI...');
+      setAnalysisError(null);
+
       const parsed = parseMidiFile(buffer, fileName);
       setOriginalMidi(JSON.parse(JSON.stringify(parsed)));
       setWorkingMidi(parsed);
@@ -132,36 +153,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (err) {
       console.error('Failed to parse MIDI file:', err);
       alert('Failed to parse MIDI file. Please make sure it is a valid Standard MIDI File (.mid).');
+      setIsAnalyzing(false);
     }
   }, [analysisSettings, runAnalysis]);
 
-  // Load File
   const loadMidiFile = useCallback(async (file: File) => {
     const buffer = await file.arrayBuffer();
     loadMidiBuffer(buffer, file.name);
     setActiveDemoId(null);
   }, [loadMidiBuffer]);
 
-  // Load Demo
   const loadDemo = useCallback((demoId: DemoCaseId) => {
-    const parsed = createDemoMidi(demoId);
-    setOriginalMidi(JSON.parse(JSON.stringify(parsed)));
-    setWorkingMidi(parsed);
-    setPast([]);
-    setFuture([]);
-    setSelectedNoteId(null);
-    setSelectedSegmentId(null);
-    setActiveDemoId(demoId);
-    setPlayheadTicks(0);
-    playheadRef.current = 0;
-    setIsPlaying(false);
-    isPlayingRef.current = false;
-    audioSynth.stopAll();
+    try {
+      setIsAnalyzing(true);
+      setAnalysisStage('Generating demo MIDI...');
+      const parsed = createDemoMidi(demoId);
+      setOriginalMidi(JSON.parse(JSON.stringify(parsed)));
+      setWorkingMidi(parsed);
+      setPast([]);
+      setFuture([]);
+      setSelectedNoteId(null);
+      setSelectedSegmentId(null);
+      setActiveDemoId(demoId);
+      setPlayheadTicks(0);
+      playheadRef.current = 0;
+      setIsPlaying(false);
+      isPlayingRef.current = false;
+      audioSynth.stopAll();
 
-    runAnalysis(parsed, analysisSettings);
+      runAnalysis(parsed, analysisSettings);
+    } catch (err: any) {
+      console.error('Failed to load demo:', err);
+      setIsAnalyzing(false);
+    }
   }, [analysisSettings, runAnalysis]);
 
-  // Export MIDI
   const exportMidi = useCallback(() => {
     if (!workingMidi) return;
     const bytes = exportMidiFile(workingMidi, workingMidi.tracks);
@@ -169,12 +195,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     downloadMidiFile(bytes, filename);
   }, [workingMidi]);
 
-  // Modify Note Pitch
   const modifyNotePitch = useCallback((noteId: string, newPitch: number) => {
     if (!workingMidi) return;
     const clampedPitch = Math.max(0, Math.min(127, Math.round(newPitch)));
 
-    // Push past state
     setPast(prev => [...prev.slice(-40), takeSnapshot(workingMidi, segments)]);
     setFuture([]);
 
@@ -215,12 +239,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setWorkingMidi(nextMidi);
     runAnalysis(nextMidi, analysisSettings, segments);
-
-    // Audition the new pitch
     audioSynth.playNote(clampedPitch, 0.4, 0.8);
   }, [workingMidi, segments, analysisSettings, runAnalysis]);
 
-  // Modify Chord Segment
   const modifyChordSegment = useCallback((
     segmentId: string,
     root: number,
@@ -246,6 +267,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           bassName,
           displayName: root === chosenBass ? `${rootName}${type === 'maj' ? '' : type}` : `${rootName}${type === 'maj' ? '' : type}/${bassName}`,
           manualOverride: true,
+          sourceType: 'MANUAL' as const,
           confidence: 100,
         };
       }
@@ -256,7 +278,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     runAnalysis(workingMidi, analysisSettings, updatedSegments);
   }, [workingMidi, segments, analysisSettings, runAnalysis]);
 
-  // Override Chord from Candidate
   const overrideChordCandidate = useCallback((segmentId: string, candidate: ChordCandidate) => {
     if (!workingMidi) return;
 
@@ -276,6 +297,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           displayName: candidate.displayName,
           confidence: candidate.confidence,
           manualOverride: true,
+          sourceType: 'MANUAL' as const,
         };
       }
       return seg;
@@ -285,7 +307,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     runAnalysis(workingMidi, analysisSettings, updatedSegments);
   }, [workingMidi, segments, analysisSettings, runAnalysis]);
 
-  // Track Settings modifications
   const updateTrackRole = useCallback((trackId: number, role: TrackRole) => {
     if (!workingMidi) return;
     const updatedTracks = workingMidi.tracks.map(t => {
@@ -327,7 +348,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             rangePreset: preset,
             analysisMinPitch: min,
             analysisMaxPitch: max,
-            hasKeyswitchWarning: false, // Dismiss alert on apply
+            hasKeyswitchWarning: false,
           },
         };
       }
@@ -399,7 +420,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [workingMidi, analysisSettings, segments, runAnalysis]);
 
-  // Undo
   const undo = useCallback(() => {
     if (past.length === 0 || !workingMidi) return;
     const previous = past[past.length - 1];
@@ -418,7 +438,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     runAnalysis(nextMidi, analysisSettings, previous.segments);
   }, [past, workingMidi, segments, analysisSettings, runAnalysis]);
 
-  // Redo
   const redo = useCallback(() => {
     if (future.length === 0 || !workingMidi) return;
     const next = future[0];
@@ -437,7 +456,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     runAnalysis(nextMidi, analysisSettings, next.segments);
   }, [future, workingMidi, segments, analysisSettings, runAnalysis]);
 
-  // Reset All
   const resetAll = useCallback(() => {
     if (!originalMidi) return;
     const cloned = JSON.parse(JSON.stringify(originalMidi)) as MidiData;
@@ -447,7 +465,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     runAnalysis(cloned, analysisSettings);
   }, [originalMidi, workingMidi, segments, analysisSettings, runAnalysis]);
 
-  // Select Note & Audition
   const selectNote = useCallback((noteId: string | null) => {
     setSelectedNoteId(noteId);
     if (noteId && workingMidi) {
@@ -466,11 +483,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActiveFilter(filter);
   }, []);
 
-  // Navigate Warnings sequentially
+  const setZoomX = useCallback((zoom: number | ((prev: number) => number)) => {
+    setZoomXState(prev => {
+      const val = typeof zoom === 'function' ? zoom(prev) : zoom;
+      return Math.max(0.02, Math.min(1.0, val));
+    });
+  }, []);
+
+  const setZoomY = useCallback((zoom: number | ((prev: number) => number)) => {
+    setZoomYState(prev => {
+      const val = typeof zoom === 'function' ? zoom(prev) : zoom;
+      return Math.max(8, Math.min(32, val));
+    });
+  }, []);
+
+  const setScroll = useCallback((left: number, top: number) => {
+    setScrollLeft(Math.max(0, left));
+    setScrollTop(Math.max(0, top));
+  }, []);
+
+  // Enhanced Warning Navigator with X and Y centering (Section 33)
   const navigateWarning = useCallback((direction: 'prev' | 'next') => {
     if (!workingMidi || analyses.size === 0) return;
 
-    // Get all warning/check notes in chronological tick order
     const flaggedNotes = workingMidi.notes.filter(n => {
       const a = analyses.get(n.id);
       if (!a) return false;
@@ -496,33 +531,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const targetNote = flaggedNotes[targetIndex];
     if (targetNote) {
       selectNote(targetNote.id);
-      // Auto-scroll timeline to bring note into view
+      // Auto-scroll timeline to bring note into center view horizontally and vertically
       const noteX = targetNote.startTicks * zoomX;
-      setScrollLeft(Math.max(0, noteX - 300));
+      const noteY = (108 - targetNote.pitch) * zoomY;
+      setScroll(Math.max(0, noteX - 350), Math.max(0, noteY - 180));
     }
-  }, [workingMidi, analyses, activeFilter, selectedNoteId, zoomX, selectNote]);
+  }, [workingMidi, analyses, activeFilter, selectedNoteId, zoomX, zoomY, selectNote, setScroll]);
 
-  // Zoom helpers
-  const setZoomX = useCallback((zoom: number | ((prev: number) => number)) => {
-    setZoomXState(prev => {
-      const val = typeof zoom === 'function' ? zoom(prev) : zoom;
-      return Math.max(0.02, Math.min(1.0, val));
-    });
-  }, []);
-
-  const setZoomY = useCallback((zoom: number | ((prev: number) => number)) => {
-    setZoomYState(prev => {
-      const val = typeof zoom === 'function' ? zoom(prev) : zoom;
-      return Math.max(8, Math.min(32, val));
-    });
-  }, []);
-
-  const setScroll = useCallback((left: number, top: number) => {
-    setScrollLeft(Math.max(0, left));
-    setScrollTop(Math.max(0, top));
-  }, []);
-
-  // Playback engine
   const togglePlay = useCallback(() => {
     if (isPlayingRef.current) {
       setIsPlaying(false);
@@ -553,7 +568,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return;
         }
 
-        // Audition notes starting in this slice
         workingMidi.notes.forEach(note => {
           const track = workingMidi.tracks.find(t => t.id === note.trackId);
           if (track && (track.settings.muted || track.settings.ignore)) return;
@@ -578,10 +592,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setPlayheadTicks(ticks);
   }, []);
 
-  // Keyboard Shortcuts (Ctrl+Z, Ctrl+Y, [, ], Space)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger if user is typing in an input
       if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) {
         return;
       }
@@ -612,11 +624,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [undo, redo, navigateWarning, togglePlay]);
 
-  // Initial load with default Test 7 demo so user immediately sees rich data on launch!
-  useEffect(() => {
-    loadDemo('test7');
-  }, []);
-
   return (
     <AppContext.Provider
       value={{
@@ -629,6 +636,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         selectedSegmentId,
         activeFilter,
         colorMode,
+        showLowConfidenceOnly,
         analysisSettings,
         past,
         future,
@@ -638,6 +646,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         scrollTop,
         isPlaying,
         playheadTicks,
+        isAnalyzing,
+        analysisStage,
+        analysisError,
         isSettingsOpen,
         activeDemoId,
         isDraggingFile,
@@ -663,6 +674,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         selectSegment,
         setFilter,
         setColorMode,
+        setShowLowConfidenceOnly,
         navigateWarning,
         setZoomX,
         setZoomY,

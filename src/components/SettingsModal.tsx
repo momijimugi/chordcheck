@@ -1,8 +1,8 @@
 import React from 'react';
 import { useApp } from '../state/AppContext';
-import { AnalysisResolution } from '../types/analysis';
+import { AnalysisResolution, HarmonySourceMode } from '../types/analysis';
 import { DEFAULT_ANALYSIS_SETTINGS } from '../utils/constants';
-import { Settings, X, RotateCcw, Sliders } from 'lucide-react';
+import { Settings, X, RotateCcw, Sliders, ShieldCheck } from 'lucide-react';
 
 export const SettingsModal: React.FC = () => {
   const {
@@ -35,11 +35,32 @@ export const SettingsModal: React.FC = () => {
           </button>
         </div>
 
-        {/* Section 1: Harmonic Resolution */}
+        {/* Section 1: Harmonic Source Mode & Resolution */}
         <div className="mt-5 space-y-4">
+          {/* Harmony Source Mode */}
           <div>
+            <label className="text-xs font-semibold text-slate-300 block mb-1.5 flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-teal-400" />
+              <span>Harmony Source Priority:</span>
+            </label>
+            <select
+              value={analysisSettings.harmonySourceMode}
+              onChange={(e) => updateAnalysisSettings({ harmonySourceMode: e.target.value as HarmonySourceMode })}
+              className="w-full bg-[#18191c] border border-[#3c404a] rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 cursor-pointer"
+            >
+              <option value="chord_guide_preferred">Chord Guide Preferred (Use Chord Guide when available, auto-detect otherwise)</option>
+              <option value="auto">Auto Detect (Estimate harmony across all tracks)</option>
+              <option value="chord_guide_only">Chord Guide Only (Rely exclusively on designated Chord Guide track)</option>
+            </select>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Select how harmony chord progressions are sourced when a track with role "Chord Guide" is present.
+            </p>
+          </div>
+
+          {/* Grid Resolution */}
+          <div className="pt-3 border-t border-[#2e3238]">
             <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-              Chord Analysis Resolution Grid:
+              Auto Chord Analysis Resolution Grid:
             </label>
             <select
               value={analysisSettings.resolution}
@@ -52,9 +73,6 @@ export const SettingsModal: React.FC = () => {
               <option value="2_beats">2 Beats (Half note resolution)</option>
               <option value="1_bar">1 Bar (Full Measure resolution)</option>
             </select>
-            <p className="text-[11px] text-slate-400 mt-1">
-              Fixed grid interval used to aggregate Weighted Pitch Class Profiles and estimate chords.
-            </p>
           </div>
 
           {/* Section 2: Short Notes Handling */}

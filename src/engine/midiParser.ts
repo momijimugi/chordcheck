@@ -11,6 +11,11 @@ export function detectTrackRoleFromNameAndNotes(
 ): TrackRole {
   const lowerName = name.toLowerCase();
 
+  // Chord Guide track name check (Section 22, 27)
+  if (lowerName.includes('chord track') || lowerName.includes('chord guide') || lowerName.includes('chords') || lowerName === 'chord' || lowerName.includes('harmony guide')) {
+    return 'chord_guide';
+  }
+
   // Percussion check
   if (channel === 9 || lowerName.includes('drum') || lowerName.includes('perc') || lowerName.includes('cymb') || lowerName.includes('snare')) {
     return 'percussion';
@@ -36,7 +41,7 @@ export function detectTrackRoleFromNameAndNotes(
     return 'harmony';
   }
 
-  // If notes exist, analyze average pitch & polyphony
+  // If notes exist, analyze average pitch
   if (notes.length > 0) {
     const avgPitch = notes.reduce((sum, n) => sum + n.midi, 0) / notes.length;
     if (avgPitch < 46) { // Below Bb2
@@ -45,6 +50,31 @@ export function detectTrackRoleFromNameAndNotes(
   }
 
   return 'auto';
+}
+
+/**
+ * Calculates melodic confidence (0.0 to 1.0)
+ * 1.0 = strictly monophonic line (melody)
+ * 0.0 = dense polyphonic chords (piano, strings pad)
+ */
+export function calculateMelodicConfidence(notes: { ticks: number; durationTicks: number }[]): number {
+  if (notes.length <= 1) return 1.0;
+
+  let overlapCount = 0;
+  const sorted = [...notes].sort((a, b) => a.ticks - b.ticks);
+
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const currentEnd = sorted[i].ticks + sorted[i].durationTicks;
+    const nextStart = sorted[i + 1].ticks;
+    // If overlap is more than 30 ticks (slight legato is allowed)
+    if (currentEnd - nextStart > 30) {
+      overlapCount++;
+    }
+  }
+
+  const overlapRatio = overlapCount / sorted.length;
+  // If no overlaps -> 1.0; if 50%+ notes overlap -> drops toward 0.1
+  return Math.max(0.05, Math.min(1.0, 1.0 - (overlapRatio * 1.5)));
 }
 
 export function parseMidiFile(arrayBuffer: ArrayBuffer, fileName: string): MidiData {
@@ -67,19 +97,23 @@ export function parseMidiFile(arrayBuffer: ArrayBuffer, fileName: string): MidiD
   const tracks: TrackData[] = [];
   const allNotes: NoteData[] = [];
 
-  midi.tracks.forEach((track, trackIndex) => {
-    // Skip empty tracks
+  let appTrackId = 0;
+
+  midi.tracks.forEach((track, sourceTrackIndex) => {
+    // Keep empty tracks in rawMidi, but only add active tracks to UI track list
     if (track.notes.length === 0) return;
 
-    const trackName = track.name || `Track ${trackIndex + 1}`;
+    const trackName = track.name || `Track ${sourceTrackIndex + 1}`;
     const detectedRole = detectTrackRoleFromNameAndNotes(trackName, track.channel, track.notes);
-    const color = TRACK_COLORS[trackIndex % TRACK_COLORS.length];
+    const color = TRACK_COLORS[appTrackId % TRACK_COLORS.length];
+    const melodicConfidence = calculateMelodicConfidence(track.notes);
 
     const trackSettings: TrackSettings = {
-      trackId: trackIndex,
+      trackId: appTrackId,
+      sourceTrackIndex,
       name: trackName,
       channel: track.channel,
-      role: 'auto',
+      role: detectedRole === 'chord_guide' ? 'chord_guide' : 'auto',
       detectedRole,
       rangePreset: 'all',
       analysisMinPitch: 0,
@@ -90,19 +124,22 @@ export function parseMidiFile(arrayBuffer: ArrayBuffer, fileName: string): MidiD
       solo: false,
       visible: true,
       hasKeyswitchWarning: false,
+      melodicConfidence,
     };
 
     const trackNotes: NoteData[] = [];
 
-    track.notes.forEach((note, noteIndex) => {
+    track.notes.forEach((note, sourceNoteIndex) => {
       const pitch = note.midi;
       const startTicks = note.ticks;
       const durationTicks = note.durationTicks;
       const endTicks = startTicks + durationTicks;
 
       const noteData: NoteData = {
-        id: `trk${trackIndex}_n${noteIndex}_t${startTicks}`,
-        trackId: trackIndex,
+        id: `trk${sourceTrackIndex}_n${sourceNoteIndex}_t${startTicks}`,
+        trackId: appTrackId,
+        sourceTrackIndex,
+        sourceNoteIndex,
         pitch,
         pitchClass: getPitchClass(pitch),
         octave: getOctave(pitch),
@@ -123,15 +160,16 @@ export function parseMidiFile(arrayBuffer: ArrayBuffer, fileName: string): MidiD
     });
 
     const trackData: TrackData = {
-      id: trackIndex,
+      id: appTrackId,
+      sourceTrackIndex,
       name: trackName,
       channel: track.channel,
       instrument: track.instrument?.name,
       notes: trackNotes,
       settings: trackSettings,
+      melodicConfidence,
     };
 
-    // Check for keyswitch notes
     const ksResult = detectTrackKeyswitches(trackData);
     if (ksResult.hasSuspiciousKeyswitches) {
       trackData.settings.hasKeyswitchWarning = true;
@@ -139,19 +177,25 @@ export function parseMidiFile(arrayBuffer: ArrayBuffer, fileName: string): MidiD
     }
 
     tracks.push(trackData);
+    appTrackId++;
   });
 
   const durationTicks = allNotes.reduce((max, n) => Math.max(max, n.endTicks), 0);
   const durationSeconds = allNotes.reduce((max, n) => Math.max(max, n.endSeconds), 0);
+  const initialTimeSig = timeSignatures.length > 0 ? timeSignatures[0] : { numerator: 4, denominator: 4 };
+  const ticksPerBar = ppq * (4 / initialTimeSig.denominator) * initialTimeSig.numerator;
+  const totalBars = Math.max(1, Math.ceil(durationTicks / Math.max(1, ticksPerBar)));
 
   return {
     name: fileName.replace(/\.[^/.]+$/, ''),
     ppq,
     durationTicks,
     durationSeconds,
+    totalBars,
     tempos,
     timeSignatures,
     tracks,
     notes: allNotes.sort((a, b) => a.startTicks - b.startTicks),
+    rawMidi: midi, // Stored for nondestructive patch export
   };
 }

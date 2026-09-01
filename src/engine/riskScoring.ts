@@ -1,4 +1,4 @@
-import { NoteAnalysis, RiskLevel, SuggestedPitch, VoiceCollision, AnalysisSettings, ChordSegment } from '../types/analysis';
+import { NoteAnalysis, RiskLevel, SuggestedPitch, VoiceCollision, AnalysisSettings, ChordSegment, CategorizedReasons } from '../types/analysis';
 import { NoteData, TrackData, TimeSignatureInfo } from '../types/midi';
 import { evaluateNoteRelation, CHORD_DEFINITIONS } from '../music/chords';
 import { getMeterPosition } from '../music/meter';
@@ -20,90 +20,124 @@ export function calculateNoteRisk(
   prevSegment?: ChordSegment
 ): NoteAnalysis {
   const reasons: string[] = [];
-  let score = 0; // Starts from 0 according to formula in Section 18
+  const categorized: CategorizedReasons = {
+    harmony: [],
+    timing: [],
+    melodic: [],
+    collision: [],
+  };
+
+  let score = 0;
 
   const relation = evaluateNoteRelation(note.pitch, currentSegment.root, currentSegment.type, currentSegment.bass);
   const meter = getMeterPosition(note.startTicks, ppq, timeSignatures);
   const durationDesc = formatDurationTicks(note.durationTicks, ppq);
-  const durationRatio = note.durationTicks / ppq; // in quarter beats
+  const durationRatio = note.durationTicks / ppq;
 
   const nctResult = analyzeNonChordTone(
     note,
     track.notes,
     currentSegment,
+    track.melodicConfidence,
     nextSegment,
     prevSegment
   );
 
   // 1. Harmony Relation Evaluation
   if (relation.isChordTone) {
-    score += settings.chordToneBonus; // -50
-    reasons.push(`Chord tone (${relation.intervalName}) in ${currentSegment.displayName}`);
+    score += settings.chordToneBonus;
+    const r = `Chord tone (${relation.intervalName}) in ${currentSegment.displayName}`;
+    reasons.push(r);
+    categorized.harmony.push(r);
   } else if (relation.isTension) {
     score -= 20;
-    reasons.push(`Permissible tension (${relation.intervalName}) in ${currentSegment.displayName}`);
+    const r = `Permissible tension (${relation.intervalName}) in ${currentSegment.displayName}`;
+    reasons.push(r);
+    categorized.harmony.push(r);
   } else if (relation.isAlteredTension) {
     score += 15;
-    reasons.push(`Altered tension (${relation.intervalName}) in ${currentSegment.displayName}`);
+    const r = `Altered tension (${relation.intervalName}) in ${currentSegment.displayName}`;
+    reasons.push(r);
+    categorized.harmony.push(r);
   } else {
-    // Non-chord tone / Chromatic tone
-    score += settings.unknownChromaticPenalty; // +30
-    reasons.push(`Non-chord tone (${relation.intervalName}) against ${currentSegment.displayName}`);
+    score += settings.unknownChromaticPenalty;
+    const r = `Non-chord tone (${relation.intervalName}) against ${currentSegment.displayName}`;
+    reasons.push(r);
+    categorized.harmony.push(r);
   }
 
-  // 2. Non-chord tone melodic resolution
+  // 2. Melodic Context / Non-chord tone resolution
   if (nctResult.type === 'passing') {
-    score += settings.passingToneBonus; // -40
-    reasons.push(nctResult.label || 'Passing tone');
+    score += settings.passingToneBonus;
+    const r = nctResult.label || 'Passing tone';
+    reasons.push(r);
+    categorized.melodic.push(r);
   } else if (nctResult.type === 'chromatic_passing') {
-    score += (settings.passingToneBonus + 5); // -35
-    reasons.push(nctResult.label || 'Chromatic passing tone');
+    score += (settings.passingToneBonus + 5);
+    const r = nctResult.label || 'Chromatic passing tone';
+    reasons.push(r);
+    categorized.melodic.push(r);
   } else if (nctResult.type === 'neighbor') {
-    score += settings.neighborToneBonus; // -40
-    reasons.push(nctResult.label || 'Neighbor tone');
+    score += settings.neighborToneBonus;
+    const r = nctResult.label || 'Neighbor tone';
+    reasons.push(r);
+    categorized.melodic.push(r);
   } else if (nctResult.type === 'anticipation') {
     score -= 30;
-    reasons.push(nctResult.label || 'Anticipation');
+    const r = nctResult.label || 'Anticipation';
+    reasons.push(r);
+    categorized.melodic.push(r);
   } else if (nctResult.type === 'suspension') {
     score -= 30;
-    reasons.push(nctResult.label || 'Suspension');
+    const r = nctResult.label || 'Suspension';
+    reasons.push(r);
+    categorized.melodic.push(r);
   } else if (!relation.isChordTone && !relation.isTension) {
     if (!nctResult.isResolved) {
-      score += settings.unresolvedPenalty; // +20
-      reasons.push('Unresolved non-chord tone (no stepwise resolution)');
+      score += settings.unresolvedPenalty;
+      const r = 'Unresolved non-chord tone (no stepwise resolution)';
+      reasons.push(r);
+      categorized.melodic.push(r);
     }
   }
 
-  // 3. Metric Position
+  // 3. Timing / Metric Position
   if (meter.isDownbeat) {
     if (!relation.isChordTone) {
-      score += settings.strongBeatPenalty; // +15
-      reasons.push('Occurs on downbeat (Bar start)');
+      score += settings.strongBeatPenalty;
+      const r = 'Occurs on downbeat (Bar start)';
+      reasons.push(r);
+      categorized.timing.push(r);
     }
   } else if (meter.isStrongBeat) {
     if (!relation.isChordTone) {
-      score += (settings.strongBeatPenalty - 5); // +10
-      reasons.push('Occurs on strong beat');
+      score += (settings.strongBeatPenalty - 5);
+      const r = 'Occurs on strong beat';
+      reasons.push(r);
+      categorized.timing.push(r);
     }
   } else if (meter.isOffbeat || meter.isOffgrid) {
-    score += settings.weakBeatBonus; // -10
+    score += settings.weakBeatBonus;
   }
 
   // 4. Duration
   if (durationRatio >= 1.0) {
     if (!relation.isChordTone && !relation.isTension) {
-      score += settings.longDurationPenalty; // +20
-      reasons.push(`Long duration (${durationDesc})`);
+      score += settings.longDurationPenalty;
+      const r = `Long duration (${durationDesc})`;
+      reasons.push(r);
+      categorized.timing.push(r);
     }
   } else if (durationRatio <= 0.5) {
-    // 8th note or shorter
-    score += settings.shortDurationBonus; // -20
+    score += settings.shortDurationBonus;
     if (!relation.isChordTone) {
-      reasons.push(`Short duration (${durationDesc})`);
+      const r = `Short duration (${durationDesc})`;
+      reasons.push(r);
+      categorized.timing.push(r);
     }
   }
 
-  // 5. Multi-voice Collision Detection
+  // 5. Multi-voice Collision Detection with Absolute Register checks (Section 32)
   const collisions: VoiceCollision[] = [];
   const trackMap = new Map<number, TrackData>();
   for (const t of allTracks) trackMap.set(t.id, t);
@@ -112,7 +146,7 @@ export function calculateNoteRisk(
     if (otherNote.trackId === note.trackId) continue;
     
     const otherTrack = trackMap.get(otherNote.trackId);
-    if (otherTrack && (otherTrack.settings.ignore || otherTrack.settings.role === 'percussion' || otherTrack.settings.role === 'keyswitch')) {
+    if (otherTrack && (otherTrack.settings.ignore || otherTrack.settings.role === 'percussion' || otherTrack.settings.role === 'keyswitch' || otherTrack.settings.role === 'chord_guide')) {
       continue;
     }
 
@@ -121,8 +155,11 @@ export function calculateNoteRisk(
     const overlapTicks = overlapEnd - overlapStart;
 
     if (overlapTicks > ppq / 8) {
-      if (isSemitoneClash(note.pitch, otherNote.pitch)) {
-        const intervalName = Math.abs(note.pitch - otherNote.pitch) === 1 ? 'Minor 2nd' : 'Minor 9th';
+      const semitoneDist = Math.abs(note.pitch - otherNote.pitch);
+
+      // Direct Minor 2nd (1 semitone) or close Minor 9th (13 semitones)
+      if (semitoneDist === 1 || semitoneDist === 13) {
+        const intervalName = semitoneDist === 1 ? 'Minor 2nd' : 'Minor 9th';
         const otherTrackName = otherTrack ? otherTrack.name : `Track ${otherNote.trackId}`;
         const clashDesc = `Clashes with ${otherTrackName} (${otherNote.name}) via ${intervalName}`;
         
@@ -131,21 +168,20 @@ export function calculateNoteRisk(
           otherPitch: otherNote.pitch,
           otherPitchName: otherNote.name,
           otherTrackName,
-          intervalSemitones: Math.abs(note.pitch - otherNote.pitch),
+          intervalSemitones: semitoneDist,
           intervalName,
           description: clashDesc,
         });
 
-        // Only add collision penalty if note is not already an authorized passing/neighbor tone
         if (nctResult.type === 'none' && !relation.isChordTone) {
           score += settings.collisionPenalty;
         }
         reasons.push(clashDesc);
+        categorized.collision.push(clashDesc);
       }
     }
   }
 
-  // Clamping (0 - 100)
   const clampedScore = Math.max(0, Math.min(100, Math.round(score)));
 
   let status: RiskLevel = 'SAFE';
@@ -173,6 +209,7 @@ export function calculateNoteRisk(
     riskScore: clampedScore,
     status,
     reasons,
+    categorizedReasons: categorized,
     suggestions: [],
     collisions,
     positionDescription: meter.description,

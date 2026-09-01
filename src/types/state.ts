@@ -28,17 +28,22 @@ export interface AppState {
   activeFilter: FilterType;
   colorMode: ColorMode;
   analysisSettings: AnalysisSettings;
+  showLowConfidenceOnly: boolean;
   // History for Undo / Redo
   past: HistoryState[];
   future: HistoryState[];
   // Viewport / Zoom
-  zoomX: number; // pixels per tick (default e.g. 0.15)
-  zoomY: number; // pixels per piano key (default e.g. 14)
+  zoomX: number;
+  zoomY: number;
   scrollLeft: number;
   scrollTop: number;
   // Playback
   isPlaying: boolean;
   playheadTicks: number;
+  // Loading and analysis state
+  isAnalyzing: boolean;
+  analysisStage: string;
+  analysisError: string | null;
   // UI states
   isSettingsOpen: boolean;
   activeDemoId: string | null;

@@ -9,12 +9,13 @@ import {
   AlertCircle, 
   Info, 
   CheckCircle2, 
-  ArrowRight, 
   HelpCircle,
   Clock,
-  MapPin,
   Music,
-  Check
+  Check,
+  ShieldAlert,
+  GitCommit,
+  Radio
 } from 'lucide-react';
 
 export const Inspector: React.FC = () => {
@@ -49,6 +50,13 @@ export const Inspector: React.FC = () => {
 
   const handleAudition = (pitch: number) => {
     audioSynth.playNote(pitch, 0.5, 0.85);
+  };
+
+  const cat = analysis.categorizedReasons || {
+    harmony: [],
+    timing: [],
+    melodic: [],
+    collision: [],
   };
 
   return (
@@ -179,24 +187,74 @@ export const Inspector: React.FC = () => {
         </div>
       </div>
 
-      {/* Reasons Breakdown (Very important for transparency!) */}
-      <div className="p-4 space-y-2">
+      {/* Categorized Analysis Reasons (Section 31) */}
+      <div className="p-4 space-y-2.5">
         <h4 className="font-bold text-slate-300 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
           <HelpCircle className="w-3.5 h-3.5 text-slate-400" />
           <span>Analysis Reasons</span>
         </h4>
 
-        <ul className="space-y-1.5 mt-2">
-          {analysis.reasons.map((reason, idx) => (
-            <li
-              key={idx}
-              className="text-xs text-slate-300 flex items-start gap-1.5 leading-relaxed bg-[#202226] p-1.5 rounded border border-[#2e3238]"
-            >
-              <span className="text-slate-500 font-bold">•</span>
-              <span>{reason}</span>
-            </li>
-          ))}
-        </ul>
+        <div className="space-y-2 mt-2">
+          {/* Harmony Category */}
+          {cat.harmony.length > 0 && (
+            <div className="bg-[#202226] p-2 rounded-lg border border-[#2e3238]">
+              <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider flex items-center gap-1 mb-1">
+                <Music className="w-3 h-3" />
+                <span>Harmony</span>
+              </span>
+              <ul className="space-y-1 text-xs text-slate-300">
+                {cat.harmony.map((r, i) => (
+                  <li key={i} className="leading-snug">• {r}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Timing Category */}
+          {cat.timing.length > 0 && (
+            <div className="bg-[#202226] p-2 rounded-lg border border-[#2e3238]">
+              <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1 mb-1">
+                <Clock className="w-3 h-3" />
+                <span>Timing & Metric</span>
+              </span>
+              <ul className="space-y-1 text-xs text-slate-300">
+                {cat.timing.map((r, i) => (
+                  <li key={i} className="leading-snug">• {r}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Melodic Context Category */}
+          {cat.melodic.length > 0 && (
+            <div className="bg-[#202226] p-2 rounded-lg border border-[#2e3238]">
+              <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider flex items-center gap-1 mb-1">
+                <GitCommit className="w-3 h-3" />
+                <span>Melodic Voice Leading</span>
+              </span>
+              <ul className="space-y-1 text-xs text-slate-300">
+                {cat.melodic.map((r, i) => (
+                  <li key={i} className="leading-snug">• {r}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Collision Category */}
+          {cat.collision.length > 0 && (
+            <div className="bg-[#202226] p-2 rounded-lg border border-[#2e3238]">
+              <span className="text-[10px] font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1 mb-1">
+                <ShieldAlert className="w-3 h-3" />
+                <span>Voice Collision</span>
+              </span>
+              <ul className="space-y-1 text-xs text-slate-300">
+                {cat.collision.map((r, i) => (
+                  <li key={i} className="leading-snug">• {r}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Suggested Pitch Corrections */}

@@ -1,16 +1,34 @@
 import React, { useRef, useEffect, useCallback, useMemo } from 'react';
 import { useApp } from '../state/AppContext';
 import { PITCH_NAMES, RISK_COLORS } from '../utils/constants';
-import { pitchToName, getPitchClass, getOctave } from '../music/pitch';
-import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import { pitchToName, getPitchClass } from '../music/pitch';
+import { MidiData } from '../types/midi';
+import { ZoomIn, ZoomOut, Maximize2, Music } from 'lucide-react';
 
 const MIN_PITCH = 12;  // C0
 const MAX_PITCH = 108; // C8
 const TOTAL_KEYS = MAX_PITCH - MIN_PITCH + 1;
 
-export const PianoRoll: React.FC = () => {
+export const PianoRollEmptyState: React.FC = () => {
+  return (
+    <div className="flex-1 bg-[#141518] flex flex-col items-center justify-center text-slate-500 text-sm select-none p-6 text-center">
+      <div className="w-12 h-12 rounded-full bg-[#1e2025] flex items-center justify-center mb-3 border border-[#2e3238]">
+        <Music className="w-6 h-6 text-slate-600" />
+      </div>
+      <h3 className="font-semibold text-slate-300 mb-1">No MIDI Project Loaded</h3>
+      <p className="text-xs text-slate-500 max-w-sm">
+        Drag and drop a MIDI file anywhere on the screen, or open a file / sample demo from the toolbar above.
+      </p>
+    </div>
+  );
+};
+
+interface ContentProps {
+  workingMidi: MidiData;
+}
+
+export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
   const {
-    workingMidi,
     analyses,
     selectedNoteId,
     selectNote,
@@ -45,14 +63,6 @@ export const PianoRoll: React.FC = () => {
       isSyncingScroll.current = false;
     }, 50);
   };
-
-  if (!workingMidi) {
-    return (
-      <div className="flex-1 bg-[#141518] flex items-center justify-center text-slate-500 text-sm select-none">
-        No MIDI data loaded. Open a MIDI file or select a Demo test case above.
-      </div>
-    );
-  }
 
   const ppq = workingMidi.ppq || 480;
   const totalTicks = Math.max(workingMidi.durationTicks, ppq * 16);
@@ -125,6 +135,28 @@ export const PianoRoll: React.FC = () => {
         return true;
     }
   }, [activeFilter]);
+
+  // Fit Project helper (horizontal zoom fit)
+  const handleFitProject = () => {
+    if (containerRef.current && workingMidi.durationTicks > 0) {
+      const containerWidth = containerRef.current.clientWidth - 100;
+      const optimalZoomX = Math.max(0.02, Math.min(0.5, containerWidth / workingMidi.durationTicks));
+      setZoomX(optimalZoomX);
+      setScroll(0, scrollTop);
+    }
+  };
+
+  // Fit Notes helper (vertical scroll fit to note range)
+  const handleFitNotes = () => {
+    if (workingMidi.notes.length > 0) {
+      const pitches = workingMidi.notes.map(n => n.pitch);
+      const minP = Math.min(...pitches);
+      const maxP = Math.max(...pitches);
+      const avgP = (minP + maxP) / 2;
+      const targetTop = (MAX_PITCH - avgP) * zoomY - 200;
+      setScroll(scrollLeft, Math.max(0, targetTop));
+    }
+  };
 
   return (
     <div className="flex-1 h-full flex flex-col bg-[#121316] relative overflow-hidden select-none">
@@ -275,9 +307,23 @@ export const PianoRoll: React.FC = () => {
         </div>
       </div>
 
-      {/* Floating Zoom Controls Overlay */}
+      {/* Floating Zoom & Fit Controls Overlay */}
       <div className="absolute bottom-4 right-4 bg-[#202226]/90 backdrop-blur border border-[#3c404a] rounded-lg p-1.5 flex items-center gap-1.5 shadow-xl z-30">
-        <span className="text-[10px] text-slate-400 font-semibold px-1">Zoom:</span>
+        <button
+          onClick={handleFitProject}
+          className="px-2 py-1 rounded bg-[#272a30] hover:bg-[#32363e] text-[10px] font-medium text-slate-300 transition"
+          title="Fit entire project length horizontally"
+        >
+          Fit Project
+        </button>
+        <button
+          onClick={handleFitNotes}
+          className="px-2 py-1 rounded bg-[#272a30] hover:bg-[#32363e] text-[10px] font-medium text-slate-300 transition"
+          title="Center active note pitch range"
+        >
+          Fit Notes
+        </button>
+        <div className="w-[1px] h-3 bg-[#3c404a] mx-0.5" />
         <button
           onClick={() => setZoomX((z: number) => z * 1.25)}
           className="p-1 rounded bg-[#272a30] hover:bg-[#32363e] text-slate-300 transition"
@@ -310,4 +356,14 @@ export const PianoRoll: React.FC = () => {
       </div>
     </div>
   );
+};
+
+export const PianoRoll: React.FC = () => {
+  const { workingMidi } = useApp();
+
+  if (!workingMidi) {
+    return <PianoRollEmptyState />;
+  }
+
+  return <PianoRollContent workingMidi={workingMidi} />;
 };

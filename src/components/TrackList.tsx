@@ -4,26 +4,27 @@ import { RangePreset, TrackRole } from '../types/midi';
 import { 
   Eye, 
   EyeOff, 
-  Volume2, 
-  VolumeX, 
   ShieldAlert, 
-  Sliders, 
   Layers,
-  ChevronDown
+  Sparkles,
+  ShieldCheck
 } from 'lucide-react';
 
 export const TrackList: React.FC = () => {
   const {
     workingMidi,
+    selectedNoteId,
     updateTrackRole,
     updateTrackRange,
     toggleTrackMute,
     toggleTrackSolo,
     toggleTrackVisibility,
-    toggleTrackIgnore,
   } = useApp();
 
   if (!workingMidi) return null;
+
+  const selectedNote = selectedNoteId ? workingMidi.notes.find(n => n.id === selectedNoteId) : null;
+  const activeTrackId = selectedNote ? selectedNote.trackId : null;
 
   return (
     <aside className="w-56 bg-[#18191c] border-r border-[#2e3238] flex flex-col h-full select-none shrink-0 overflow-hidden">
@@ -34,7 +35,7 @@ export const TrackList: React.FC = () => {
           <span>Tracks ({workingMidi.tracks.length})</span>
         </div>
         <span className="text-[10px] text-slate-500 font-mono">
-          {workingMidi.notes.length} notes
+          {workingMidi.notes.length.toLocaleString()} notes
         </span>
       </div>
 
@@ -43,12 +44,23 @@ export const TrackList: React.FC = () => {
         {workingMidi.tracks.map((track) => {
           const { settings } = track;
           const isIgnored = settings.ignore || settings.role === 'ignore';
+          const isChordGuide = settings.role === 'chord_guide';
+          const isSelected = activeTrackId === track.id;
+
+          const isSuggestedChordGuide = settings.role !== 'chord_guide' && (
+            track.name.toLowerCase().includes('chord') ||
+            track.name.toLowerCase().includes('guide')
+          );
 
           return (
             <div
               key={track.id}
               className={`p-2.5 transition ${
-                isIgnored
+                isSelected
+                  ? 'bg-blue-950/40 border-l-2 border-l-blue-400'
+                  : isChordGuide
+                  ? 'bg-teal-950/20 border-l-2 border-l-teal-500'
+                  : isIgnored
                   ? 'opacity-60 bg-[#141518]'
                   : 'bg-[#18191c] hover:bg-[#202226]'
               }`}
@@ -101,38 +113,58 @@ export const TrackList: React.FC = () => {
                 </div>
               </div>
 
-              {/* Second Row: Track Role Selector */}
+              {/* Second Row: Track Role Selector with Chord Guide */}
               <div className="flex items-center justify-between gap-1 mt-1">
                 <span className="text-[10px] text-slate-400">Role:</span>
                 <select
                   value={settings.role}
                   onChange={(e) => updateTrackRole(track.id, e.target.value as TrackRole)}
-                  className="bg-[#202226] border border-[#3c404a] rounded px-1.5 py-0.5 text-[11px] text-slate-200 focus:outline-none focus:border-blue-500 cursor-pointer flex-1 max-w-[135px] truncate"
+                  className={`border rounded px-1.5 py-0.5 text-[11px] focus:outline-none cursor-pointer flex-1 max-w-[135px] truncate ${
+                    isChordGuide
+                      ? 'bg-teal-950/60 border-teal-500 text-teal-200 font-semibold'
+                      : 'bg-[#202226] border-[#3c404a] text-slate-200 focus:border-blue-500'
+                  }`}
                 >
                   <option value="auto">Auto ({settings.detectedRole || 'auto'})</option>
                   <option value="melody">Melody</option>
                   <option value="harmony">Harmony</option>
                   <option value="bass">Bass</option>
+                  <option value="chord_guide">Chord Guide ⭐</option>
                   <option value="percussion">Percussion</option>
                   <option value="keyswitch">Keyswitch / Ignore</option>
                   <option value="ignore">Ignore</option>
                 </select>
               </div>
 
+              {/* Chord Guide Suggested Banner */}
+              {isSuggestedChordGuide && (
+                <div className="mt-1.5 p-1.5 rounded bg-teal-950/30 border border-teal-500/40 text-[10px] flex items-center justify-between">
+                  <span className="text-teal-300 font-medium">Use as Chord Guide?</span>
+                  <button
+                    onClick={() => updateTrackRole(track.id, 'chord_guide')}
+                    className="px-1.5 py-0.5 rounded bg-teal-600 hover:bg-teal-500 text-white font-semibold text-[9px] transition"
+                  >
+                    Set Role
+                  </button>
+                </div>
+              )}
+
               {/* Third Row: Analysis Range Preset */}
-              <div className="flex items-center justify-between gap-1 mt-1">
-                <span className="text-[10px] text-slate-400">Range:</span>
-                <select
-                  value={settings.rangePreset}
-                  onChange={(e) => updateTrackRange(track.id, e.target.value as RangePreset)}
-                  className="bg-[#202226] border border-[#3c404a] rounded px-1.5 py-0.5 text-[11px] text-slate-200 focus:outline-none focus:border-blue-500 cursor-pointer flex-1 max-w-[135px] truncate"
-                >
-                  <option value="all">Full Range (0-127)</option>
-                  <option value="ignore_below_c0">Ignore &lt; C0 (12-127)</option>
-                  <option value="ignore_below_c1">Ignore &lt; C1 (24-127)</option>
-                  <option value="ignore_below_c2">Ignore &lt; C2 (36-127)</option>
-                </select>
-              </div>
+              {!isChordGuide && (
+                <div className="flex items-center justify-between gap-1 mt-1">
+                  <span className="text-[10px] text-slate-400">Range:</span>
+                  <select
+                    value={settings.rangePreset}
+                    onChange={(e) => updateTrackRange(track.id, e.target.value as RangePreset)}
+                    className="bg-[#202226] border border-[#3c404a] rounded px-1.5 py-0.5 text-[11px] text-slate-200 focus:outline-none focus:border-blue-500 cursor-pointer flex-1 max-w-[135px] truncate"
+                  >
+                    <option value="all">Full Range (0-127)</option>
+                    <option value="ignore_below_c0">Ignore &lt; C0 (12-127)</option>
+                    <option value="ignore_below_c1">Ignore &lt; C1 (24-127)</option>
+                    <option value="ignore_below_c2">Ignore &lt; C2 (36-127)</option>
+                  </select>
+                </div>
+              )}
 
               {/* Keyswitch Warning Alert Banner */}
               {settings.hasKeyswitchWarning && (

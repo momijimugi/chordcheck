@@ -12,6 +12,7 @@ export const PITCH_NAMES_FLAT = [
 
 export const DEFAULT_ANALYSIS_SETTINGS: AnalysisSettings = {
   resolution: '1_beat',
+  harmonySourceMode: 'chord_guide_preferred',
   minDurationTicks: 0,
   reduceShortNoteInfluence: true,
   detectKeyswitches: true,

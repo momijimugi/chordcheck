@@ -2,6 +2,10 @@ import { TrackRole } from './midi';
 
 export type RiskLevel = 'SAFE' | 'INFO' | 'CHECK' | 'WARNING';
 
+export type HarmonySourceType = 'AUTO' | 'GUIDE' | 'MANUAL';
+
+export type HarmonySourceMode = 'auto' | 'chord_guide_preferred' | 'chord_guide_only';
+
 export type ChordType = 
   | 'maj' 
   | 'min' 
@@ -52,6 +56,7 @@ export interface ChordSegment {
   confidence: number; // 0-100%
   candidates: ChordCandidate[];
   manualOverride: boolean;
+  sourceType: HarmonySourceType; // 'AUTO' | 'GUIDE' | 'MANUAL'
 }
 
 export interface NoteRelation {
@@ -92,6 +97,13 @@ export interface SuggestedPitch {
   reason: string;
 }
 
+export interface CategorizedReasons {
+  harmony: string[];
+  timing: string[];
+  melodic: string[];
+  collision: string[];
+}
+
 export interface NoteAnalysis {
   noteId: string;
   pitch: number;
@@ -106,11 +118,12 @@ export interface NoteAnalysis {
   riskScore: number; // 0-100
   status: RiskLevel;
   reasons: string[];
+  categorizedReasons?: CategorizedReasons;
   suggestions: SuggestedPitch[];
   collisions: VoiceCollision[];
-  positionDescription: string; // "Bar 1 Beat 1 (Downbeat)", "Beat 2.5 (Offbeat)"
-  durationDescription: string; // "480 ticks (Quarter Note)"
-  resolutionDescription: string; // "Stepwise resolution detected", "No resolution detected"
+  positionDescription: string;
+  durationDescription: string;
+  resolutionDescription: string;
 }
 
 export type AnalysisResolution = 
@@ -122,18 +135,18 @@ export type AnalysisResolution =
 
 export interface AnalysisSettings {
   resolution: AnalysisResolution;
-  minDurationTicks: number; // 0 = off, or e.g. ppq/16
+  harmonySourceMode: HarmonySourceMode;
+  minDurationTicks: number;
   reduceShortNoteInfluence: boolean;
   detectKeyswitches: boolean;
-  // Risk weights modifiers
-  chordToneBonus: number; // default: -50
-  shortDurationBonus: number; // default: -20
-  passingToneBonus: number; // default: -40
-  neighborToneBonus: number; // default: -40
-  weakBeatBonus: number; // default: -10
-  strongBeatPenalty: number; // default: +15
-  longDurationPenalty: number; // default: +20
-  unknownChromaticPenalty: number; // default: +30
-  unresolvedPenalty: number; // default: +20
-  collisionPenalty: number; // default: +15
+  chordToneBonus: number;
+  shortDurationBonus: number;
+  passingToneBonus: number;
+  neighborToneBonus: number;
+  weakBeatBonus: number;
+  strongBeatPenalty: number;
+  longDurationPenalty: number;
+  unknownChromaticPenalty: number;
+  unresolvedPenalty: number;
+  collisionPenalty: number;
 }
