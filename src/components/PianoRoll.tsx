@@ -5,6 +5,7 @@ import { getPitchClass } from '../music/pitch';
 import { formatPitchName } from '../music/keyDetection';
 import { buildMeterMap } from '../music/meter';
 import { MidiData, NoteData } from '../types/midi';
+import { calculateFitZoom, LEFT_GUTTER_WIDTH, tickToX, xToTick } from '../utils/timelineGeometry';
 import { ZoomIn, ZoomOut, Music } from 'lucide-react';
 
 const MIN_PITCH = 12;  // C0
@@ -46,6 +47,7 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
     setScroll,
     isPlaying,
     playheadTicks,
+    setPlayheadTicks,
   } = useApp();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -75,6 +77,19 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
     }
   }, [scrollLeft, scrollTop]);
 
+  // Auto-scroll playback follow (Phase O / Section 58)
+  useEffect(() => {
+    if (isPlaying && containerRef.current) {
+      const playheadX = tickToX(playheadTicks, zoomX);
+      const currentScroll = containerRef.current.scrollLeft;
+      const viewWidth = containerRef.current.clientWidth - LEFT_GUTTER_WIDTH;
+
+      if (playheadX > currentScroll + viewWidth - 80 || playheadX < currentScroll) {
+        containerRef.current.scrollLeft = Math.max(0, playheadX - 100);
+      }
+    }
+  }, [isPlaying, playheadTicks, zoomX]);
+
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     isSyncingScroll.current = true;
     setScroll(e.currentTarget.scrollLeft, e.currentTarget.scrollTop);
@@ -100,7 +115,7 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
     return map;
   }, [workingMidi]);
 
-  // Pre-indexed temporal note buckets for rapid viewport virtualization (Phase K)
+  // Pre-indexed temporal note buckets for rapid viewport virtualization
   const timeBucketSize = Math.max(240, ppq);
   const noteTemporalBuckets = useMemo(() => {
     const buckets = new Map<number, NoteData[]>();
@@ -115,7 +130,7 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
     return buckets;
   }, [workingMidi.notes, timeBucketSize]);
 
-  // Keys array with key-aware enharmonic spelling (Phase G)
+  // Keys array with key-aware enharmonic spelling
   const pianoKeys = useMemo(() => {
     const keys = [];
     for (let p = MAX_PITCH; p >= MIN_PITCH; p--) {
@@ -152,7 +167,7 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
 
         lines.push({
           ticks: barTicks,
-          left: barTicks * zoomX,
+          left: tickToX(barTicks, zoomX),
           isBar: true,
           barNumber,
           timeSigBadge,
@@ -164,7 +179,7 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
           if (beatTicks < region.endTicks) {
             lines.push({
               ticks: beatTicks,
-              left: beatTicks * zoomX,
+              left: tickToX(beatTicks, zoomX),
               isBar: false,
               barNumber: null,
               timeSigBadge: null,
@@ -180,7 +195,7 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
     return lines;
   }, [meterMap, zoomX]);
 
-  // Viewport Virtualization bounds (Phase K)
+  // Viewport Virtualization bounds
   const visibleStartTicks = Math.max(0, (scrollLeft - 400) / zoomX);
   const visibleEndTicks = (scrollLeft + viewportSize.width + 400) / zoomX;
   const visibleMaxPitch = Math.min(MAX_PITCH, MAX_PITCH - Math.floor((scrollTop - 100) / zoomY) + 12);
@@ -228,10 +243,16 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
     }
   }, [activeFilter]);
 
+  const handleGridClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const targetTicks = Math.max(0, Math.min(workingMidi.durationTicks, xToTick(clickX, zoomX)));
+    setPlayheadTicks(targetTicks);
+  };
+
   const handleFitProject = () => {
     if (containerRef.current && workingMidi.durationTicks > 0) {
-      const containerWidth = containerRef.current.clientWidth - 100;
-      const optimalZoomX = Math.max(0.02, Math.min(0.5, containerWidth / workingMidi.durationTicks));
+      const optimalZoomX = calculateFitZoom(containerRef.current.clientWidth, workingMidi.durationTicks);
       setZoomX(optimalZoomX);
       setScroll(0, scrollTop);
     }
@@ -257,10 +278,10 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
         className="flex-1 overflow-auto relative flex"
         style={{ scrollBehavior: 'auto' }}
       >
-        {/* Left Sticky Piano Keys */}
+        {/* Left Sticky Piano Keys (56px) */}
         <div
           className="sticky left-0 bg-[#18191c] border-r border-[#2e3238] shrink-0 z-20 shadow-lg"
-          style={{ width: '56px', height: `${gridHeight}px` }}
+          style={{ width: `${LEFT_GUTTER_WIDTH}px`, height: `${gridHeight}px` }}
         >
           {pianoKeys.map((key) => {
             return (
@@ -285,7 +306,8 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
 
         {/* Timeline Grid & Notes Area */}
         <div
-          className="relative bg-[#141518]"
+          onClick={handleGridClick}
+          className="relative bg-[#141518] cursor-pointer"
           style={{
             width: `${gridWidth}px`,
             height: `${gridHeight}px`,
@@ -299,7 +321,7 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
                 top: `${idx * zoomY}px`,
                 height: `${zoomY}px`,
               }}
-              className={`absolute left-0 right-0 border-b ${
+              className={`absolute left-0 right-0 border-b pointer-events-none ${
                 key.isBlack
                   ? 'bg-[#16171b]/60 border-[#1f2127]'
                   : 'bg-[#1b1d22]/30 border-[#23262d]'
@@ -344,8 +366,8 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
             const isSelected = selectedNoteId === note.id;
 
             const top = (MAX_PITCH - note.pitch) * zoomY;
-            const left = note.startTicks * zoomX;
-            const width = Math.max(8, note.durationTicks * zoomX - 1);
+            const left = tickToX(note.startTicks, zoomX);
+            const width = Math.max(8, tickToX(note.durationTicks, zoomX) - 1);
             const height = Math.max(4, zoomY - 1);
 
             const status = isChordGuideTrack ? 'SAFE' : (analysis?.status || 'SAFE');
@@ -366,6 +388,7 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
                 key={note.id}
                 onClick={(e) => {
                   e.stopPropagation();
+                  setPlayheadTicks(note.startTicks);
                   if (!isChordGuideTrack) {
                     selectNote(note.id);
                   }
@@ -404,12 +427,14 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
           })}
 
           {/* Active Playhead Line */}
-          {isPlaying && (
-            <div
-              style={{ left: `${playheadTicks * zoomX}px` }}
-              className="absolute top-0 bottom-0 w-[2px] bg-rose-500 z-40 pointer-events-none shadow-[0_0_8px_rgba(244,63,94,0.8)]"
-            />
-          )}
+          <div
+            style={{ left: `${tickToX(playheadTicks, zoomX)}px` }}
+            className={`absolute top-0 bottom-0 w-[2px] z-40 pointer-events-none transition-opacity ${
+              isPlaying
+                ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.8)] opacity-100'
+                : 'bg-rose-400/80 opacity-80'
+            }`}
+          />
         </div>
       </div>
 

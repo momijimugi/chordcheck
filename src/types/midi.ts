@@ -17,6 +17,30 @@ export type RangePreset =
   | 'ignore_below_c2' 
   | 'custom';
 
+export type InstrumentFamily =
+  | 'piano'
+  | 'keyboard'
+  | 'guitar'
+  | 'bass'
+  | 'strings'
+  | 'brass'
+  | 'woodwind'
+  | 'synth'
+  | 'drums'
+  | 'percussion'
+  | 'vocal'
+  | 'orchestra'
+  | 'unknown';
+
+export interface TrackClassification {
+  suggestedRole: TrackRole;
+  instrumentFamily: InstrumentFamily;
+  instrumentName?: string;
+  confidence: number;
+  drumConfidence?: number;
+  reasons: string[];
+}
+
 export interface TrackSettings {
   trackId: number;
   sourceTrackIndex: number;
@@ -24,6 +48,10 @@ export interface TrackSettings {
   channel: number;
   role: TrackRole;
   detectedRole?: TrackRole;
+  roleSource?: 'automatic' | 'manual';
+  instrumentFamily?: InstrumentFamily;
+  manualInstrumentFamily?: InstrumentFamily;
+  classification?: TrackClassification;
   rangePreset: RangePreset;
   analysisMinPitch: number; // 0 to 127
   analysisMaxPitch: number; // 0 to 127

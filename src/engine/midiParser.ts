@@ -5,6 +5,7 @@ import { buildMeterMap, calculateTotalBars } from '../music/meter';
 import { TRACK_COLORS } from '../utils/constants';
 import { detectTrackKeyswitches } from './keyswitchDetection';
 import { parseSMFNoteOffsets, SMFNoteOffset } from './smfPatcher';
+import { classifyTrack } from './trackClassifier';
 
 export function detectTrackRoleFromNameAndNotes(
   name: string,
@@ -117,7 +118,34 @@ export function parseMidiFile(input: ArrayBuffer | ArrayBufferLike | Uint8Array,
     if (track.notes.length === 0) return;
 
     const trackName = track.name || `Track ${sourceTrackIndex + 1}`;
-    const detectedRole = detectTrackRoleFromNameAndNotes(trackName, track.channel, track.notes);
+    const rawTrackNotes = track.notes.map((n, idx) => ({
+      id: `raw_${sourceTrackIndex}_${idx}`,
+      trackId: appTrackId,
+      sourceTrackIndex,
+      sourceNoteIndex: idx,
+      pitch: n.midi,
+      pitchClass: n.midi % 12,
+      octave: Math.floor(n.midi / 12) - 1,
+      name: n.name || '',
+      startTicks: n.ticks,
+      durationTicks: n.durationTicks,
+      endTicks: n.ticks + n.durationTicks,
+      startSeconds: n.time,
+      durationSeconds: n.duration,
+      endSeconds: n.time + n.duration,
+      velocity: n.velocity,
+      channel: track.channel,
+      originalPitch: n.midi,
+    }));
+
+    const classification = classifyTrack({
+      id: appTrackId,
+      name: trackName,
+      channel: track.channel,
+      notes: rawTrackNotes,
+    }, ppq);
+
+    const detectedRole = classification.suggestedRole;
     const color = TRACK_COLORS[appTrackId % TRACK_COLORS.length];
     const melodicConfidence = calculateMelodicConfidence(track.notes);
 
@@ -128,6 +156,9 @@ export function parseMidiFile(input: ArrayBuffer | ArrayBufferLike | Uint8Array,
       channel: track.channel,
       role: detectedRole === 'chord_guide' ? 'chord_guide' : 'auto',
       detectedRole,
+      roleSource: 'automatic',
+      instrumentFamily: classification.instrumentFamily,
+      classification,
       rangePreset: 'all',
       analysisMinPitch: 0,
       analysisMaxPitch: 127,

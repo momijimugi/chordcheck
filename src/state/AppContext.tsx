@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { AppState, ColorMode, FilterType, HistoryState } from '../types/state';
 import { AnalysisSettings, ChordCandidate, ChordSegment, ChordType, KeyContext, NoteAnalysis } from '../types/analysis';
-import { MidiData, NoteData, RangePreset, TrackData, TrackRole } from '../types/midi';
+import { InstrumentFamily, MidiData, NoteData, RangePreset, TrackData, TrackRole } from '../types/midi';
 import { DEFAULT_ANALYSIS_SETTINGS, PITCH_NAMES } from '../utils/constants';
 import { parseMidiFile } from '../engine/midiParser';
 import { exportMidiFile, getExportDiagnosticInfo, ExportDiagnosticInfo } from '../engine/midiExporter';
@@ -27,6 +27,7 @@ interface AppContextValue extends AppState {
   modifyChordSegment: (segmentId: string, root: number, type: ChordType, bass?: number) => void;
   overrideChordCandidate: (segmentId: string, candidate: ChordCandidate) => void;
   updateTrackRole: (trackId: number, role: TrackRole) => void;
+  updateTrackInstrument: (trackId: number, family: InstrumentFamily) => void;
   updateTrackRange: (trackId: number, preset: RangePreset, min?: number, max?: number) => void;
   toggleTrackMute: (trackId: number) => void;
   toggleTrackSolo: (trackId: number) => void;
@@ -51,6 +52,11 @@ interface AppContextValue extends AppState {
   setPlayheadTicks: (ticks: number) => void;
   setSettingsOpen: (open: boolean) => void;
   setIsDraggingFile: (dragging: boolean) => void;
+  // Drum Confirmation Modal (Phase C / β0.4)
+  isDrumConfirmModalOpen: boolean;
+  pendingDrumTracks: TrackData[];
+  confirmDrumTracks: (selectedTrackIds: number[]) => void;
+  dismissDrumConfirm: () => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -86,7 +92,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [playheadTicks, setPlayheadTicks] = useState<number>(0);
 
-  // Analysis progress & Worker state (Phase A)
+  // Drum Confirmation state (Phase C / β0.4)
+  const [isDrumConfirmModalOpen, setIsDrumConfirmModalOpen] = useState<boolean>(false);
+  const [pendingDrumTracks, setPendingDrumTracks] = useState<TrackData[]>([]);
+
+  // Analysis progress & Worker state
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [analysisProgress, setAnalysisProgress] = useState<number>(0);
   const [analysisStage, setAnalysisStage] = useState<string>('');
@@ -101,7 +111,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const animFrameRef = useRef<number | null>(null);
   const lastPlayTimeRef = useRef<number>(0);
 
-  // Key detection respecting manual override (Phase D, E, F)
+  // Key detection respecting manual override
   const keyContext = useMemo<KeyContext | undefined>(() => {
     if (!workingMidi || workingMidi.notes.length === 0) return undefined;
 
@@ -134,7 +144,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     })),
   });
 
-  // Web Worker-backed analysis executor (Phase A)
+  // Web Worker-backed analysis executor
   const runAnalysis = useCallback((
     midi: MidiData,
     settings: AnalysisSettings,
@@ -171,6 +181,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   }, []);
 
+  const checkAndPromptDrums = useCallback((midi: MidiData) => {
+    const highConfDrums = midi.tracks.filter(
+      t => (t.settings.classification?.drumConfidence ?? 0) >= 80 &&
+           t.settings.role !== 'percussion' &&
+           t.settings.roleSource !== 'manual'
+    );
+    if (highConfDrums.length > 0) {
+      setPendingDrumTracks(highConfDrums);
+      setIsDrumConfirmModalOpen(true);
+    }
+  }, []);
+
   const loadMidiBuffer = useCallback((buffer: ArrayBuffer, fileName: string) => {
     try {
       setIsAnalyzing(true);
@@ -192,12 +214,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       audioSynth.stopAll();
 
       runAnalysis(parsed, analysisSettings);
+      checkAndPromptDrums(parsed);
     } catch (err) {
       console.error('Failed to parse MIDI file:', err);
       alert('MIDIファイルの解析に失敗しました。標準MIDIファイル (.mid) であることをご確認ください。');
       setIsAnalyzing(false);
     }
-  }, [analysisSettings, runAnalysis]);
+  }, [analysisSettings, runAnalysis, checkAndPromptDrums]);
 
   const loadMidiFile = useCallback(async (file: File) => {
     const buffer = await file.arrayBuffer();
@@ -231,7 +254,56 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [analysisSettings, runAnalysis]);
 
-  // Export Safety Modal state (Phase D / β0.3.2)
+  // Drum Confirmation Handlers
+  const confirmDrumTracks = useCallback((selectedTrackIds: number[]) => {
+    if (!workingMidi) return;
+    const selectedSet = new Set(selectedTrackIds);
+    const updatedTracks = workingMidi.tracks.map(t => {
+      if (selectedSet.has(t.id)) {
+        return {
+          ...t,
+          settings: {
+            ...t.settings,
+            role: 'percussion' as TrackRole,
+            ignore: true,
+            roleSource: 'manual' as const,
+            instrumentFamily: 'drums' as InstrumentFamily,
+          },
+        };
+      } else {
+        return {
+          ...t,
+          settings: {
+            ...t.settings,
+            roleSource: 'manual' as const,
+          },
+        };
+      }
+    });
+
+    const nextMidi = { ...workingMidi, tracks: updatedTracks };
+    setWorkingMidi(nextMidi);
+    setIsDrumConfirmModalOpen(false);
+    setPendingDrumTracks([]);
+    runAnalysis(nextMidi, analysisSettings, segments);
+  }, [workingMidi, analysisSettings, segments, runAnalysis]);
+
+  const dismissDrumConfirm = useCallback(() => {
+    if (!workingMidi) return;
+    // Mark as manually evaluated so modal does not re-open
+    const updatedTracks = workingMidi.tracks.map(t => ({
+      ...t,
+      settings: {
+        ...t.settings,
+        roleSource: 'manual' as const,
+      },
+    }));
+    setWorkingMidi({ ...workingMidi, tracks: updatedTracks });
+    setIsDrumConfirmModalOpen(false);
+    setPendingDrumTracks([]);
+  }, [workingMidi]);
+
+  // Export Safety Modal state
   const [isExportSafetyModalOpen, setIsExportSafetyModalOpen] = useState<boolean>(false);
   const [exportSafetyDiag, setExportSafetyDiag] = useState<ExportDiagnosticInfo | null>(null);
 
@@ -374,6 +446,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           settings: {
             ...t.settings,
             role,
+            roleSource: 'manual' as const,
             ignore: role === 'ignore' || role === 'keyswitch' || role === 'percussion',
           },
         };
@@ -385,6 +458,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setWorkingMidi(nextMidi);
     runAnalysis(nextMidi, analysisSettings, segments);
   }, [workingMidi, segments, analysisSettings, runAnalysis]);
+
+  const updateTrackInstrument = useCallback((trackId: number, family: InstrumentFamily) => {
+    if (!workingMidi) return;
+    const updatedTracks = workingMidi.tracks.map(t => {
+      if (t.id === trackId) {
+        return {
+          ...t,
+          settings: {
+            ...t.settings,
+            instrumentFamily: family,
+            manualInstrumentFamily: family,
+          },
+        };
+      }
+      return t;
+    });
+
+    setWorkingMidi({ ...workingMidi, tracks: updatedTracks });
+  }, [workingMidi]);
 
   const updateTrackRange = useCallback((
     trackId: number,
@@ -453,6 +545,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ...t.settings,
             ignore: nextIgnore,
             role: nextIgnore ? 'ignore' : (t.settings.detectedRole || 'auto'),
+            roleSource: 'manual' as const,
           },
         };
       }
@@ -532,7 +625,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (noteId && workingMidi) {
       const note = workingMidi.notes.find(n => n.id === noteId);
       if (note) {
-        audioSynth.playNote(note.pitch, 0.4, 0.8);
+        const track = workingMidi.tracks.find(t => t.id === note.trackId);
+        audioSynth.playNote(note.pitch, 0.4, 0.8, track?.settings.instrumentFamily || 'piano');
       }
     }
   }, [workingMidi]);
@@ -598,7 +692,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [workingMidi, analyses, activeFilter, selectedNoteId, zoomX, zoomY, selectNote, setScroll]);
 
-  // Tempo Map Adaptive Playback (Phase L / Section 44)
+  // Tempo Map Adaptive Playback with Instrument Family Synth (Phase P / Section 60-63)
   const togglePlay = useCallback(() => {
     if (isPlayingRef.current) {
       setIsPlaying(false);
@@ -610,6 +704,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsPlaying(true);
       isPlayingRef.current = true;
       lastPlayTimeRef.current = performance.now();
+
+      // If playhead was at the end, restart from 0
+      if (playheadRef.current >= workingMidi.durationTicks - 10) {
+        playheadRef.current = 0;
+        setPlayheadTicks(0);
+      }
 
       const step = (now: number) => {
         if (!isPlayingRef.current) return;
@@ -635,7 +735,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (track && (track.settings.muted || track.settings.ignore)) return;
 
           if (note.startTicks >= playheadRef.current && note.startTicks < currentTicks) {
-            audioSynth.playNote(note.pitch, note.durationTicks / ticksPerSec, note.velocity);
+            const family = track?.settings.instrumentFamily || 'piano';
+            audioSynth.playNote(note.pitch, note.durationTicks / ticksPerSec, note.velocity, family);
           }
         });
 
@@ -654,9 +755,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setPlayheadTicks(ticks);
   }, []);
 
+  // Global Keyboard Shortcuts (Space play/pause, Ctrl+Z, Ctrl+Y, [, ])
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) {
+      const target = e.target as HTMLElement;
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(target?.tagName) || target?.isContentEditable) {
         return;
       }
 
@@ -728,6 +831,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         modifyChordSegment,
         overrideChordCandidate,
         updateTrackRole,
+        updateTrackInstrument,
         updateTrackRange,
         toggleTrackMute,
         toggleTrackSolo,
@@ -752,6 +856,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setPlayheadTicks: setPlayhead,
         setSettingsOpen,
         setIsDraggingFile,
+        isDrumConfirmModalOpen,
+        pendingDrumTracks,
+        confirmDrumTracks,
+        dismissDrumConfirm,
       }}
     >
       {children}

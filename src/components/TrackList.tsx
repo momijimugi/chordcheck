@@ -1,11 +1,13 @@
 import React from 'react';
 import { useApp } from '../state/AppContext';
-import { RangePreset, TrackRole } from '../types/midi';
+import { InstrumentFamily, RangePreset, TrackRole } from '../types/midi';
 import { 
   Eye, 
   EyeOff, 
   ShieldAlert, 
-  Layers
+  Layers,
+  Sparkles,
+  Drum
 } from 'lucide-react';
 
 export const TrackList: React.FC = () => {
@@ -14,6 +16,7 @@ export const TrackList: React.FC = () => {
     selectedNoteId,
     updateTrackRole,
     updateTrackRange,
+    updateTrackInstrument,
     toggleTrackMute,
     toggleTrackSolo,
     toggleTrackVisibility,
@@ -23,6 +26,24 @@ export const TrackList: React.FC = () => {
 
   const selectedNote = selectedNoteId ? workingMidi.notes.find(n => n.id === selectedNoteId) : null;
   const activeTrackId = selectedNote ? selectedNote.trackId : null;
+
+  const getFamilyIcon = (family?: InstrumentFamily) => {
+    switch (family) {
+      case 'piano':
+      case 'keyboard': return '🎹';
+      case 'guitar': return '🎸';
+      case 'bass': return '🎸';
+      case 'strings': return '🎻';
+      case 'brass': return '🎺';
+      case 'woodwind': return '🎷';
+      case 'synth': return '🎛';
+      case 'drums':
+      case 'percussion': return '🥁';
+      case 'vocal': return '🎤';
+      case 'orchestra': return '🎼';
+      default: return '🎵';
+    }
+  };
 
   const getRoleLabel = (role: TrackRole) => {
     switch (role) {
@@ -58,12 +79,16 @@ export const TrackList: React.FC = () => {
           const { settings } = track;
           const isIgnored = settings.ignore || settings.role === 'ignore';
           const isChordGuide = settings.role === 'chord_guide';
+          const isPercussion = settings.role === 'percussion';
           const isSelected = activeTrackId === track.id;
 
           const isSuggestedChordGuide = settings.role !== 'chord_guide' && (
             track.name.toLowerCase().includes('chord') ||
             track.name.toLowerCase().includes('guide')
           );
+
+          const drumConf = settings.classification?.drumConfidence ?? 0;
+          const isHighConfidenceDrum = drumConf >= 80 && !isPercussion;
 
           return (
             <div
@@ -78,13 +103,16 @@ export const TrackList: React.FC = () => {
                   : 'bg-[#18191c] hover:bg-[#202226]'
               }`}
             >
-              {/* Top Row: Color indicator, Name, Channel, Mute/Solo/Vis */}
-              <div className="flex items-center justify-between gap-1.5 mb-1.5">
+              {/* Top Row: Color indicator, Instrument Icon, Name, Mute/Solo/Vis */}
+              <div className="flex items-center justify-between gap-1.5 mb-1">
                 <div className="flex items-center gap-1.5 min-w-0 flex-1">
                   <div
                     className="w-2.5 h-2.5 rounded-full shrink-0 shadow-sm"
                     style={{ backgroundColor: settings.color }}
                   />
+                  <span className="text-xs shrink-0" title={settings.instrumentFamily}>
+                    {getFamilyIcon(settings.instrumentFamily)}
+                  </span>
                   <span className="font-semibold text-xs text-slate-200 truncate" title={track.name}>
                     {track.name}
                   </span>
@@ -126,7 +154,17 @@ export const TrackList: React.FC = () => {
                 </div>
               </div>
 
-              {/* Second Row: Track Role Selector with Chord Guide */}
+              {/* Classification proposal badge (Phase F / Section 20) */}
+              {settings.classification && (
+                <div className="flex items-center gap-1 mb-1.5">
+                  <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-black/40 text-slate-400 flex items-center gap-0.5 border border-slate-700/50">
+                    <Sparkles className="w-2 h-2 text-amber-400" />
+                    <span>推定: {getRoleLabel(settings.classification.suggestedRole)} ({settings.classification.confidence}%)</span>
+                  </span>
+                </div>
+              )}
+
+              {/* Second Row: Track Role Selector */}
               <div className="flex items-center justify-between gap-1 mt-1">
                 <span className="text-[10px] text-slate-400">役割:</span>
                 <select
@@ -135,6 +173,8 @@ export const TrackList: React.FC = () => {
                   className={`border rounded px-1.5 py-0.5 text-[11px] focus:outline-none cursor-pointer flex-1 max-w-[145px] truncate ${
                     isChordGuide
                       ? 'bg-teal-950/60 border-teal-500 text-teal-200 font-semibold'
+                      : isPercussion
+                      ? 'bg-amber-950/50 border-amber-500/60 text-amber-200 font-semibold'
                       : 'bg-[#202226] border-[#3c404a] text-slate-200 focus:border-blue-500'
                   }`}
                 >
@@ -149,6 +189,45 @@ export const TrackList: React.FC = () => {
                 </select>
               </div>
 
+              {/* Instrument Family Selector (Phase S / Section 72) */}
+              <div className="flex items-center justify-between gap-1 mt-1">
+                <span className="text-[10px] text-slate-400">音色:</span>
+                <select
+                  value={settings.instrumentFamily || 'unknown'}
+                  onChange={(e) => updateTrackInstrument && updateTrackInstrument(track.id, e.target.value as InstrumentFamily)}
+                  className="bg-[#202226] border border-[#3c404a] rounded px-1.5 py-0.5 text-[11px] text-slate-200 focus:outline-none focus:border-blue-500 cursor-pointer flex-1 max-w-[145px] truncate"
+                >
+                  <option value="piano">🎹 ピアノ</option>
+                  <option value="keyboard">🎹 鍵盤 / オルガン</option>
+                  <option value="guitar">🎸 ギター</option>
+                  <option value="bass">🎸 ベース</option>
+                  <option value="strings">🎻 ストリングス</option>
+                  <option value="brass">🎺 ブラス / 金管</option>
+                  <option value="woodwind">🎷 木管楽器</option>
+                  <option value="synth">🎛 シンセサイザー</option>
+                  <option value="drums">🥁 ドラム</option>
+                  <option value="percussion">🥁 パーカッション</option>
+                  <option value="vocal">🎤 ボーカル</option>
+                  <option value="unknown">🎵 標準音色</option>
+                </select>
+              </div>
+
+              {/* Drum Candidate Alert Banner (Phase C / Section 8) */}
+              {isHighConfidenceDrum && (
+                <div className="mt-1.5 p-1.5 rounded bg-amber-950/40 border border-amber-500/50 text-[10px] flex items-center justify-between">
+                  <div className="flex items-center gap-1 text-amber-300 font-medium">
+                    <Drum className="w-3 h-3 text-amber-400" />
+                    <span>ドラム候補 ({drumConf}%)</span>
+                  </div>
+                  <button
+                    onClick={() => updateTrackRole(track.id, 'percussion')}
+                    className="px-1.5 py-0.5 rounded bg-amber-500 hover:bg-amber-400 text-black font-bold text-[9px] transition"
+                  >
+                    ドラムに設定
+                  </button>
+                </div>
+              )}
+
               {/* Chord Guide Suggested Banner */}
               {isSuggestedChordGuide && (
                 <div className="mt-1.5 p-1.5 rounded bg-teal-950/30 border border-teal-500/40 text-[10px] flex items-center justify-between">
@@ -162,8 +241,8 @@ export const TrackList: React.FC = () => {
                 </div>
               )}
 
-              {/* Third Row: Analysis Range Preset */}
-              {!isChordGuide && (
+              {/* Analysis Range Preset */}
+              {!isChordGuide && !isPercussion && (
                 <div className="flex items-center justify-between gap-1 mt-1">
                   <span className="text-[10px] text-slate-400">音域:</span>
                   <select

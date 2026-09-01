@@ -3,6 +3,7 @@ import { useApp } from '../state/AppContext';
 import { ChordCandidate, ChordSegment, ChordType } from '../types/analysis';
 import { PITCH_NAMES } from '../utils/constants';
 import { ALL_CHORD_TYPES, CHORD_DEFINITIONS } from '../music/chords';
+import { LEFT_GUTTER_WIDTH, calculateChordBlockGeometry, xToTick, tickToX } from '../utils/timelineGeometry';
 import { Edit3, Check, X, Lock, ShieldCheck } from 'lucide-react';
 
 export const HarmonyTimeline: React.FC = () => {
@@ -16,6 +17,9 @@ export const HarmonyTimeline: React.FC = () => {
     selectedSegmentId,
     selectSegment,
     showLowConfidenceOnly,
+    playheadTicks,
+    setPlayheadTicks,
+    isPlaying,
   } = useApp();
 
   const [editingSegment, setEditingSegment] = useState<ChordSegment | null>(null);
@@ -23,10 +27,10 @@ export const HarmonyTimeline: React.FC = () => {
   const [customType, setCustomType] = useState<ChordType>('maj');
   const [customBass, setCustomBass] = useState<number>(0);
 
-  // Visual Merge of consecutive identical chord segments (Section 29)
+  // Visual Merge of consecutive identical chord segments
   // IMPORTANT: This hook must always run on every render. Do not return early before it.
   const mergedSegments = useMemo(() => {
-    if (segments.length === 0) return [];
+    if (!segments || segments.length === 0) return [];
 
     const merged: {
       id: string;
@@ -64,7 +68,6 @@ export const HarmonyTimeline: React.FC = () => {
       const seg = segments[i];
       const segSource = seg.sourceType || (seg.manualOverride ? 'MANUAL' : 'AUTO');
 
-      // If consecutive segment has same chord display name, manualOverride, and source type, merge visually
       if (
         seg.displayName === current.displayName &&
         seg.manualOverride === current.manualOverride &&
@@ -101,7 +104,7 @@ export const HarmonyTimeline: React.FC = () => {
   // Keep all hooks above this guard so the hook order is stable before/after MIDI load.
   if (!workingMidi || segments.length === 0) return null;
 
-  const totalWidth = workingMidi.durationTicks * zoomX + 600;
+  const totalWidth = workingMidi.durationTicks * zoomX + 800 + LEFT_GUTTER_WIDTH;
 
   const openEditor = (seg: ChordSegment) => {
     setEditingSegment(seg);
@@ -125,9 +128,16 @@ export const HarmonyTimeline: React.FC = () => {
     }
   };
 
+  const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = e.clientX - rect.left - LEFT_GUTTER_WIDTH;
+    const targetTicks = Math.max(0, Math.min(workingMidi.durationTicks, xToTick(clickX, zoomX)));
+    setPlayheadTicks(targetTicks);
+  };
+
   return (
     <div className="h-14 bg-[#1e2025] border-b border-[#2e3238] flex items-center relative overflow-hidden select-none shrink-0">
-      {/* Fixed Left Header */}
+      {/* Fixed Left Header (224px / w-56 matching TrackList column) */}
       <div className="w-56 h-full bg-[#18191c] border-r border-[#2e3238] flex items-center justify-between px-3 shrink-0 z-10 shadow-md">
         <div className="flex items-center gap-1.5">
           <span className="text-xs font-semibold text-slate-300">コード進行</span>
@@ -136,19 +146,31 @@ export const HarmonyTimeline: React.FC = () => {
 
       {/* Horizontally scrolling merged chord segments track */}
       <div
-        className="flex-1 h-full relative overflow-x-hidden"
+        className="flex-1 h-full relative overflow-x-hidden cursor-pointer"
         style={{ width: `calc(100% - 224px)` }}
       >
         <div
+          onClick={handleTimelineClick}
           className="h-full relative flex items-center"
           style={{
             width: `${totalWidth}px`,
             transform: `translateX(-${scrollLeft}px)`,
           }}
         >
+          {/* Left Gutter Placeholder (56px matching PianoRoll keyboard) */}
+          <div
+            style={{ width: `${LEFT_GUTTER_WIDTH}px` }}
+            className="h-full bg-[#18191c]/80 border-r border-[#2e3238] shrink-0 pointer-events-none"
+          />
+
+          {/* Render All Chord Blocks aligned to exact tick geometry */}
           {mergedSegments.map((block) => {
-            const left = block.startTicks * zoomX;
-            const width = Math.max(48, (block.endTicks - block.startTicks) * zoomX - 2);
+            const { left: chordLeft, width: chordWidth } = calculateChordBlockGeometry(
+              block.startTicks,
+              block.endTicks,
+              zoomX
+            );
+            const left = LEFT_GUTTER_WIDTH + chordLeft;
             const isSelected = selectedSegmentId === block.primarySegment.id;
             const isLowConf = block.confidence < 60 && !block.manualOverride && block.sourceType !== 'GUIDE';
 
@@ -159,12 +181,19 @@ export const HarmonyTimeline: React.FC = () => {
             return (
               <div
                 key={block.id}
-                onClick={() => openEditor(block.primarySegment)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPlayheadTicks(block.startTicks); // Single Click seeks to chord start
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  openEditor(block.primarySegment); // Double Click opens editor
+                }}
                 style={{
                   left: `${left}px`,
-                  width: `${width}px`,
+                  width: `${chordWidth}px`,
                 }}
-                className={`absolute h-10 top-2 rounded-md border flex flex-col justify-center px-2 cursor-pointer transition shadow-sm ${
+                className={`absolute h-10 top-2 rounded-md border flex flex-col justify-center px-1.5 cursor-pointer transition shadow-sm overflow-hidden ${
                   block.manualOverride || block.sourceType === 'MANUAL'
                     ? 'bg-purple-950/50 border-purple-500/70 text-purple-200 hover:bg-purple-900/60'
                     : block.sourceType === 'GUIDE'
@@ -175,43 +204,70 @@ export const HarmonyTimeline: React.FC = () => {
                     ? 'bg-blue-950/50 border-blue-500 text-blue-200 shadow-md'
                     : 'bg-[#272a30] border-[#3c404a] text-slate-200 hover:bg-[#32363e] hover:border-slate-400'
                 }`}
-                title={`第${block.barStart}小節 ${block.beatStart}拍 ~ 第${block.barEnd}小節 ${block.beatEnd}拍: ${block.displayName} (${block.confidence}% 確信度 | ${block.sourceType})。クリックして手動変更`}
+                title={`第${block.barStart}小節 ${block.beatStart}拍 ~ 第${block.barEnd}小節 ${block.beatEnd}拍: ${block.displayName} (${block.confidence}% 確信度 | ${block.sourceType})。クリックでシーク、編集アイコンまたはダブルクリックで変更`}
               >
                 <div className="flex items-center justify-between gap-1 overflow-hidden">
                   <span className="font-bold text-xs truncate tracking-tight">{block.displayName}</span>
                   
-                  {/* Source Tag Badge (MANUAL / GUIDE / AUTO) */}
-                  <div className="flex items-center gap-1 shrink-0">
-                    {block.sourceType === 'MANUAL' ? (
-                      <span className="text-[9px] text-purple-300 font-mono px-1 rounded bg-purple-900/60 border border-purple-500/50 flex items-center gap-0.5">
-                        <Lock className="w-2 h-2" />
-                        <span>手動指定</span>
-                      </span>
-                    ) : block.sourceType === 'GUIDE' ? (
-                      <span className="text-[9px] text-teal-300 font-mono px-1 rounded bg-teal-900/60 border border-teal-500/50 flex items-center gap-0.5">
-                        <ShieldCheck className="w-2 h-2" />
-                        <span>GUIDE</span>
-                      </span>
-                    ) : (
-                      <span className={`text-[10px] font-mono px-1 rounded ${
-                        block.confidence >= 80 ? 'text-emerald-400 bg-emerald-950/40' :
-                        block.confidence >= 60 ? 'text-amber-400 bg-amber-950/40' :
-                        'text-rose-400 bg-rose-950/40'
-                      }`}>
-                        {block.confidence}%
-                      </span>
+                  {/* Edit action button */}
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openEditor(block.primarySegment);
+                      }}
+                      className="p-0.5 rounded hover:bg-white/20 text-slate-300 transition"
+                      title="コードを手動指定"
+                    >
+                      <Edit3 className="w-2.5 h-2.5" />
+                    </button>
+
+                    {chordWidth > 70 && (
+                      block.sourceType === 'MANUAL' ? (
+                        <span className="text-[8px] text-purple-300 font-mono px-1 rounded bg-purple-900/60 border border-purple-500/50 flex items-center gap-0.5">
+                          <Lock className="w-2 h-2" />
+                          <span>手動</span>
+                        </span>
+                      ) : block.sourceType === 'GUIDE' ? (
+                        <span className="text-[8px] text-teal-300 font-mono px-1 rounded bg-teal-900/60 border border-teal-500/50 flex items-center gap-0.5">
+                          <ShieldCheck className="w-2 h-2" />
+                          <span>GUIDE</span>
+                        </span>
+                      ) : (
+                        <span className={`text-[9px] font-mono px-1 rounded ${
+                          block.confidence >= 80 ? 'text-emerald-400 bg-emerald-950/40' :
+                          block.confidence >= 60 ? 'text-amber-400 bg-amber-950/40' :
+                          'text-rose-400 bg-rose-950/40'
+                        }`}>
+                          {block.confidence}%
+                        </span>
+                      )
                     )}
                   </div>
                 </div>
 
-                <span className="text-[9px] text-slate-400 truncate">
-                  {block.barStart === block.barEnd
-                    ? `第${block.barStart}小節`
-                    : `第${block.barStart}〜${block.barEnd}小節`}
-                </span>
+                {chordWidth > 45 && (
+                  <span className="text-[8px] text-slate-400 truncate">
+                    {block.barStart === block.barEnd
+                      ? `第${block.barStart}小節`
+                      : `第${block.barStart}〜${block.barEnd}小節`}
+                  </span>
+                )}
               </div>
             );
           })}
+
+          {/* Unified Vertical Playhead Line across Timeline */}
+          <div
+            style={{ left: `${LEFT_GUTTER_WIDTH + tickToX(playheadTicks, zoomX)}px` }}
+            className={`absolute top-0 bottom-0 w-[2px] z-40 pointer-events-none transition-opacity ${
+              isPlaying
+                ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.8)] opacity-100'
+                : 'bg-rose-400/80 opacity-80'
+            }`}
+          >
+            <div className="w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[6px] border-t-rose-500 -ml-[3px]" />
+          </div>
         </div>
       </div>
 
