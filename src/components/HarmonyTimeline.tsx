@@ -23,11 +23,8 @@ export const HarmonyTimeline: React.FC = () => {
   const [customType, setCustomType] = useState<ChordType>('maj');
   const [customBass, setCustomBass] = useState<number>(0);
 
-  if (!workingMidi || segments.length === 0) return null;
-
-  const totalWidth = workingMidi.durationTicks * zoomX + 600;
-
   // Visual Merge of consecutive identical chord segments (Section 29)
+  // IMPORTANT: This hook must always run on every render. Do not return early before it.
   const mergedSegments = useMemo(() => {
     if (segments.length === 0) return [];
 
@@ -100,6 +97,11 @@ export const HarmonyTimeline: React.FC = () => {
     merged.push(current);
     return merged;
   }, [segments]);
+
+  // Keep all hooks above this guard so the hook order is stable before/after MIDI load.
+  if (!workingMidi || segments.length === 0) return null;
+
+  const totalWidth = workingMidi.durationTicks * zoomX + 600;
 
   const openEditor = (seg: ChordSegment) => {
     setEditingSegment(seg);
