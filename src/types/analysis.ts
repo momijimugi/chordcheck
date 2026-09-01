@@ -10,6 +10,7 @@ export type MinSegmentLength = '1/4_beat' | '1/2_beat' | '1_beat';
 
 export type ChordAnalysisSpan =
   | 'auto'
+  | 'two_beats'
   | 'half_bar'
   | 'one_bar'
   | 'two_bars'
@@ -47,6 +48,27 @@ export interface KeyContext {
   manualOverride: boolean;
 }
 
+export interface ScoreBreakdown {
+  primaryHarmony: number;
+  supportingHarmony: number;
+  bass: number;
+  melody: number;
+  key: number;
+  continuity: number;
+  extension: number;
+}
+
+export interface ChordChangeEvidence {
+  rootChange: boolean;
+  bassChange: boolean;
+  thirdChange: boolean;
+  seventhChange: boolean;
+  primaryHarmonyChange: number; // cosine distance: 0 = identical, 1 = completely different
+  profileDifference: number;
+  confidenceDelta: number;
+  isStrongChange: boolean;
+}
+
 export interface ChordCandidate {
   root: number; // 0-11
   rootName: string; // "C", "C#", "Db" etc.
@@ -57,6 +79,7 @@ export interface ChordCandidate {
   displayName: string; // "Cmaj7", "Am7/G", etc.
   score: number;
   confidence: number; // 0-100%
+  scoreBreakdown?: ScoreBreakdown;
 }
 
 export interface ChordSegment {

@@ -14,15 +14,57 @@ import {
   ChordType,
   KeyContext,
 } from '../types/analysis';
-import { NoteData, TimeSignatureInfo, TrackData } from '../types/midi';
+import { ChordAnalysisRole, NoteData, TimeSignatureInfo, TrackData } from '../types/midi';
 import {
   buildMeterMap,
   getBarStartTicks,
   getMeterPosition,
   getTimeSignatureAtTicks,
   MeterRegion,
+  ticksToMusicalPosition,
 } from '../music/meter';
 import { getKeyCompatibilityBonus } from '../music/keyDetection';
+import { DEFAULT_ANALYSIS_SETTINGS } from '../utils/constants';
+
+export function getEffectiveChordRole(track?: TrackData): ChordAnalysisRole {
+  if (!track) return 'primary_harmony';
+
+  // 1. Manual user override for chord analysis role (β0.4.2 Phase N / Section 36-37)
+  if (track.settings.chordAnalysisRoleSource === 'manual' && track.settings.chordAnalysisRole && track.settings.chordAnalysisRole !== 'auto') {
+    return track.settings.chordAnalysisRole;
+  }
+
+  // 2. Auto-suggested chord analysis role
+  if (track.settings.chordAnalysisRole === 'auto' && track.settings.detectedChordAnalysisRole) {
+    return track.settings.detectedChordAnalysisRole;
+  }
+
+  if (track.settings.chordAnalysisRole && track.settings.chordAnalysisRole !== 'auto') {
+    return track.settings.chordAnalysisRole;
+  }
+
+  // 3. Generic Track Role fallback
+  const role = track.settings.role;
+  if (role === 'chord_guide') return 'primary_harmony';
+  if (role === 'bass') return 'bass_anchor';
+  if (role === 'harmony') return 'primary_harmony';
+  if (role === 'melody') return 'melody';
+  if (role === 'percussion' || role === 'keyswitch' || role === 'ignore') return 'exclude';
+
+  // 4. Detected generic role
+  const detRole = track.settings.detectedRole;
+  if (detRole === 'chord_guide') return 'primary_harmony';
+  if (detRole === 'bass') return 'bass_anchor';
+  if (detRole === 'harmony') return 'primary_harmony';
+  if (detRole === 'melody') return 'melody';
+  if (detRole === 'percussion' || detRole === 'keyswitch' || detRole === 'ignore') return 'exclude';
+
+  if (track.settings.classification?.suggestedChordRole) {
+    return track.settings.classification.suggestedChordRole;
+  }
+
+  return 'primary_harmony';
+}
 
 function getDurationWeight(durationTicks: number, ppq: number): number {
   const beats = durationTicks / ppq;
@@ -135,7 +177,34 @@ export function generateSpanWindows(
     return [{ startTicks: 0, endTicks: maxTicks, barIndex: 1, beatIndex: 1 }];
   }
 
-  if (span === 'half_bar') {
+  if (span === 'two_beats') {
+    bars.forEach(bar => {
+      // In 4/4 or 3/4 or other meters: 2 beats = 2 * bar.ticksPerBeat (Phase G / Section 16-20)
+      const twoBeatsTicks = Math.round(bar.ticksPerBeat * 2);
+      if (bar.ticksPerBar > twoBeatsTicks) {
+        const splitPoint = bar.startTicks + twoBeatsTicks;
+        windows.push({
+          startTicks: bar.startTicks,
+          endTicks: splitPoint,
+          barIndex: bar.barIndex,
+          beatIndex: 1,
+        });
+        windows.push({
+          startTicks: splitPoint,
+          endTicks: bar.endTicks,
+          barIndex: bar.barIndex,
+          beatIndex: 3,
+        });
+      } else {
+        windows.push({
+          startTicks: bar.startTicks,
+          endTicks: bar.endTicks,
+          barIndex: bar.barIndex,
+          beatIndex: 1,
+        });
+      }
+    });
+  } else if (span === 'half_bar') {
     bars.forEach(bar => {
       const halfTicks = Math.round(bar.ticksPerBar / 2);
       const mid = bar.startTicks + halfTicks;
@@ -180,108 +249,265 @@ export function generateSpanWindows(
 }
 
 /**
- * Evaluates candidate chords for a given pitch profile, lowest bass pitch, and key context
+ * Evaluates candidate chords using Two-Pass Harmony Analysis:
+ * Pass 1: Identifies Core Harmony (Root, 3rd, 5th, 7th, Bass) using Primary Harmony & Bass evidence
+ * Pass 2: Enriches extensions and tensions (9, 11, 13, alterated dominant) using Supporting Harmony & Melody
  */
 export function scoreChordCandidates(
   pitchProfile: number[],
   lowestBassPc: number,
   prevRoot: number | null = null,
   prevType: ChordType | null = null,
-  keyContext?: KeyContext
+  keyContext?: KeyContext,
+  profiles?: {
+    primary: number[];
+    supporting: number[];
+    melody: number[];
+  }
 ): ChordCandidate[] {
-  const candidates: ChordCandidate[] = [];
+  let coreProfile = pitchProfile;
+  let fullProfile = pitchProfile;
 
-  for (let root = 0; root < 12; root++) {
-    const rootName = pitchClassToName(root);
+  if (profiles) {
+    // Pass 1 Core Profile: Primary Harmony (1.0) + Supporting Harmony (0.45)
+    coreProfile = profiles.primary.map((p, i) => p + 0.45 * profiles.supporting[i]);
+    const hasCore = coreProfile.some(v => v > 0.001);
+    if (!hasCore) {
+      // Fallback for unaccompanied melody songs
+      coreProfile = profiles.melody.slice();
+    }
+    // Pass 2 Full Profile: Primary Harmony (1.0) + Supporting Harmony (0.45) + Melody (0.15)
+    fullProfile = profiles.primary.map((p, i) => p + 0.45 * profiles.supporting[i] + 0.15 * profiles.melody[i]);
+  }
 
-    for (const chordType of ALL_CHORD_TYPES) {
+  // -------------------------------------------------------------
+  // PASS 1: Core Harmony Detection (Root, Quality, Bass Anchor)
+  // -------------------------------------------------------------
+  const CORE_TYPES: ChordType[] = [
+    'maj', 'min', 'dim', 'aug', 'maj7', 'min7', 'dom7', 'mMaj7', 'm7b5', 'dim7', 'sus2', 'sus4', '6', 'min6'
+  ];
+
+  let bestCoreRoot = 0;
+  let bestCoreType: ChordType = 'maj';
+  let bestCoreScore = -9999;
+
+  const activeRoots: number[] = [];
+  for (let r = 0; r < 12; r++) {
+    if (coreProfile[r] > 0.01 || coreProfile[(r + 3) % 12] > 0.01 || coreProfile[(r + 4) % 12] > 0.01 || r === lowestBassPc || r === prevRoot) {
+      activeRoots.push(r);
+    }
+  }
+  if (activeRoots.length === 0) activeRoots.push(0);
+
+  for (let rIdx = 0; rIdx < activeRoots.length; rIdx++) {
+    const root = activeRoots[rIdx];
+    for (const chordType of CORE_TYPES) {
       const def = CHORD_DEFINITIONS[chordType];
       const template = CHORD_TEMPLATES[chordType];
       let score = 0;
 
-      // 1. Template matching with weighted pitch profile
+      // 1. Template matching with core pitch profile
       for (let interval = 0; interval < 12; interval++) {
         const pc = (root + interval) % 12;
-        const pcWeight = pitchProfile[pc];
-        const templateWeight = template.weights[interval];
-
+        const pcWeight = coreProfile[pc];
         if (pcWeight > 0) {
-          score += pcWeight * templateWeight;
+          score += pcWeight * template.weights[interval];
         }
       }
 
-      // Penalty for missing essential chord tones
+      // Penalty for missing essential chord tones in core profile
       for (const interval of def.intervals) {
         const pc = (root + interval) % 12;
-        if (pitchProfile[pc] <= 0.01) {
+        if (coreProfile[pc] <= 0.01) {
           score -= (interval === 3 || interval === 4) ? 1.4 : 0.8;
         }
       }
 
-      // 2. Root presence bonus
-      const rootWeight = pitchProfile[root];
-      if (rootWeight > 0) {
-        score += rootWeight * 1.5;
+      // Root presence bonus
+      if (coreProfile[root] > 0) {
+        score += coreProfile[root] * 1.5;
       }
 
-      // 3. Bass alignment bonus
-      let chosenBass = root;
+      // Bass anchor evidence (PHASE D / Section 7-8)
       if (lowestBassPc >= 0) {
-        chosenBass = lowestBassPc;
         if (lowestBassPc === root) {
           score += 2.0;
         } else {
           const bassInterval = ((lowestBassPc - root) % 12 + 12) % 12;
           if (def.intervals.includes(bassInterval)) {
             score += 1.0;
+          } else if (bassInterval === 2 || bassInterval === 5 || bassInterval === 9) {
+            // Slash chord evidence (e.g. C/D, Cmaj7/D)
+            score += 0.5;
           } else {
             score -= 1.8;
           }
         }
       }
 
-      // 4. Harmonic stability / persistence bonus
+      // Persistence bonus
       if (prevRoot !== null && prevRoot === root && prevType === chordType) {
         score += 0.8;
       }
 
-      // 5. Key compatibility tie-breaker bonus
+      // Key compatibility bonus
       if (keyContext) {
         score += getKeyCompatibilityBonus(root, chordType, keyContext);
       }
 
-      // 6. Complexity weighting
+      if (score > bestCoreScore) {
+        bestCoreScore = score;
+        bestCoreRoot = root;
+        bestCoreType = chordType;
+      }
+    }
+  }
+
+  // -------------------------------------------------------------
+  // PASS 2: Full Evaluation & Extension / Tension Enrichment
+  // -------------------------------------------------------------
+  interface ScoredCandidate {
+    root: number;
+    type: ChordType;
+    bass: number;
+    score: number;
+    bassScore: number;
+    keyScore: number;
+    continuityScore: number;
+    extScore: number;
+  }
+  const candidates: ScoredCandidate[] = [];
+  const activePass2Roots: number[] = [];
+  for (let r = 0; r < 12; r++) {
+    if (fullProfile[r] > 0.01 || fullProfile[(r + 3) % 12] > 0.01 || fullProfile[(r + 4) % 12] > 0.01 || r === lowestBassPc || r === bestCoreRoot || r === prevRoot) {
+      activePass2Roots.push(r);
+    }
+  }
+  if (activePass2Roots.length === 0) activePass2Roots.push(bestCoreRoot);
+
+  for (let rIdx = 0; rIdx < activePass2Roots.length; rIdx++) {
+    const root = activePass2Roots[rIdx];
+    const isCoreRoot = root === bestCoreRoot;
+
+    const typesToEvaluate: ChordType[] = isCoreRoot
+      ? ALL_CHORD_TYPES
+      : (root === lowestBassPc ? ['maj', 'min', 'dim', 'dom7', 'min7', 'maj7'] : ['maj', 'min', 'dim']);
+
+    for (const chordType of typesToEvaluate) {
+      const def = CHORD_DEFINITIONS[chordType];
+      const template = CHORD_TEMPLATES[chordType];
+      let score = 0;
+
+      // 1. Template matching with full pitch profile
+      for (let interval = 0; interval < 12; interval++) {
+        const pc = (root + interval) % 12;
+        const pcWeight = fullProfile[pc];
+        if (pcWeight > 0) {
+          score += pcWeight * template.weights[interval];
+        }
+      }
+
+      // Missing essential chord tones penalty
+      for (const interval of def.intervals) {
+        const pc = (root + interval) % 12;
+        if (fullProfile[pc] <= 0.01) {
+          score -= (interval === 3 || interval === 4) ? 1.4 : 0.8;
+        }
+      }
+
+      // Root presence bonus
+      const rootWeight = fullProfile[root];
+      if (rootWeight > 0) {
+        score += rootWeight * 1.5;
+      }
+
+      // Core Root Anchor Bonus (PHASE E & F: Melody notes cannot swing core root)
+      if (isCoreRoot) {
+        score += 2.5;
+      }
+
+      // Bass alignment bonus
+      let chosenBass = root;
+      let bassScore = 0;
+      if (lowestBassPc >= 0) {
+        chosenBass = lowestBassPc;
+        if (lowestBassPc === root) {
+          bassScore = 2.0;
+        } else {
+          const bassInterval = ((lowestBassPc - root) % 12 + 12) % 12;
+          if (def.intervals.includes(bassInterval)) {
+            bassScore = 1.0;
+          } else if (bassInterval === 2 || bassInterval === 5 || bassInterval === 9) {
+            bassScore = 0.5; // Slash chord
+          } else {
+            bassScore = -1.8;
+          }
+        }
+      }
+      score += bassScore;
+
+      // Persistence
+      let continuityScore = 0;
+      if (prevRoot !== null && prevRoot === root && prevType === chordType) {
+        continuityScore = 0.8;
+        score += continuityScore;
+      }
+
+      // Key compatibility
+      let keyScore = 0;
+      if (keyContext) {
+        keyScore = getKeyCompatibilityBonus(root, chordType, keyContext);
+        score += keyScore;
+      }
+
+      // Extension / Alteration Evaluation (Pass 2)
+      let extScore = 0;
+      const extensionIntervals = def.intervals.filter(inv => inv !== 0 && inv !== 3 && inv !== 4 && inv !== 6 && inv !== 7 && inv !== 8);
+      if (extensionIntervals.length > 0) {
+        const hasAllExtensions = extensionIntervals.every(inv => fullProfile[(root + inv) % 12] > 0.08);
+        if (hasAllExtensions) {
+          extScore += 0.8;
+          score += 0.8;
+        } else {
+          score -= 1.8;
+        }
+      }
+
+      // Altered Dominant Special Handling (PHASE F / Section 14)
+      if (chordType === 'dom7' || chordType === 'dom9') {
+        const b9 = fullProfile[(root + 1) % 12];
+        const sharp9 = fullProfile[(root + 3) % 12];
+        const sharp11 = fullProfile[(root + 6) % 12];
+        const b13 = fullProfile[(root + 8) % 12];
+        const alterationWeight = b9 + sharp9 + sharp11 + b13;
+        if (alterationWeight > 0.2) {
+          score += alterationWeight * 1.2;
+          extScore += alterationWeight * 1.2;
+        }
+      }
+
       if (chordType === 'sus2' || chordType === 'sus4') {
         score -= 0.6;
       } else if (chordType === 'dim' || chordType === 'aug') {
         score -= 0.4;
-      } else if (def.intervals.length >= 4) {
-        const hasExtension = def.intervals.slice(3).some(inv => pitchProfile[(root + inv) % 12] > 0.1);
-        if (!hasExtension) {
-          score -= 1.2;
-        }
       }
-
-      const bassName = pitchClassToName(chosenBass);
-      const displayName = formatChordName(root, chordType, chosenBass);
 
       candidates.push({
         root,
-        rootName,
         type: chordType,
-        typeName: def.name,
         bass: chosenBass,
-        bassName,
-        displayName,
         score,
-        confidence: 0,
+        bassScore,
+        keyScore,
+        continuityScore,
+        extScore,
       });
     }
   }
 
   candidates.sort((a, b) => b.score - a.score);
 
-  const topScore = candidates[0].score;
+  const topScore = candidates.length > 0 ? candidates[0].score : 0;
   const secondScore = candidates.length > 1 ? candidates[1].score : 0;
   const diff = topScore - secondScore;
   
@@ -291,25 +517,79 @@ export function scoreChordCandidates(
     confidence = Math.max(40, Math.min(98, confidence));
   }
 
-  return candidates.slice(0, 5).map((c, idx) => ({
-    ...c,
-    confidence: idx === 0 ? confidence : Math.max(10, Math.min(90, Math.round(confidence * Math.max(0, (c.score / Math.max(0.1, topScore)))))),
-  }));
+  const top5: ChordCandidate[] = candidates.slice(0, 5).map((c, idx) => {
+    const rootName = pitchClassToName(c.root);
+    const bassName = pitchClassToName(c.bass);
+    const displayName = formatChordName(c.root, c.type, c.bass);
+    const typeName = CHORD_DEFINITIONS[c.type].name;
+    const candConfidence = idx === 0 ? confidence : Math.max(10, Math.min(90, Math.round(confidence * Math.max(0, (c.score / Math.max(0.1, topScore))))));
+
+    return {
+      root: c.root,
+      rootName,
+      type: c.type,
+      typeName,
+      bass: c.bass,
+      bassName,
+      displayName,
+      score: c.score,
+      confidence: candConfidence,
+      scoreBreakdown: {
+        primaryHarmony: 0,
+        supportingHarmony: 0,
+        bass: c.bassScore,
+        melody: 0,
+        key: c.keyScore,
+        continuity: c.continuityScore,
+        extension: c.extScore,
+      },
+    };
+  });
+
+  // Compute breakdown for top 5 candidates only (Phase Performance)
+  if (profiles) {
+    for (const c of top5) {
+      const template = CHORD_TEMPLATES[c.type];
+      let pScore = 0;
+      let sScore = 0;
+      let mScore = 0;
+      for (let interval = 0; interval < 12; interval++) {
+        const pc = (c.root + interval) % 12;
+        const tw = template.weights[interval];
+        if (tw > 0) {
+          if (profiles.primary[pc] > 0) pScore += profiles.primary[pc] * tw;
+          if (profiles.supporting[pc] > 0) sScore += profiles.supporting[pc] * tw * 0.45;
+          if (profiles.melody[pc] > 0) mScore += profiles.melody[pc] * tw * 0.15;
+        }
+      }
+      if (c.scoreBreakdown) {
+        c.scoreBreakdown.primaryHarmony = pScore;
+        c.scoreBreakdown.supportingHarmony = sScore;
+        c.scoreBreakdown.melody = mScore;
+      }
+    }
+  }
+
+  return top5;
 }
 
 export function detectChords(
   notes: NoteData[],
-  tracks: TrackData[],
-  ppq: number,
-  totalDurationTicks: number,
-  timeSignatures: TimeSignatureInfo[],
-  settings: AnalysisSettings,
+  tracks: TrackData[] = [],
+  ppq: number = 480,
+  totalDurationTicks: number = 0,
+  timeSignatures: TimeSignatureInfo[] = [{ ticks: 0, time: 0, numerator: 4, denominator: 4 }],
+  settings: AnalysisSettings = DEFAULT_ANALYSIS_SETTINGS,
   existingSegments: ChordSegment[] = [],
   keyContext?: KeyContext
 ): ChordSegment[] {
+  const safeTracks = Array.isArray(tracks) ? tracks : [];
   const trackMap = new Map<number, TrackData>();
-  for (const t of tracks) {
+  const trackEffectiveRoleMap = new Map<number, ChordAnalysisRole>();
+
+  for (const t of safeTracks) {
     trackMap.set(t.id, t);
+    trackEffectiveRoleMap.set(t.id, getEffectiveChordRole(t));
   }
 
   // Preserve manual overrides
@@ -320,7 +600,7 @@ export function detectChords(
     }
   }
 
-  const chordGuideTrack = tracks.find(t => t.settings.role === 'chord_guide' && t.notes.length > 0);
+  const chordGuideTrack = safeTracks.find(t => t.settings.role === 'chord_guide' && t.notes.length > 0);
   const useChordGuide = (settings.harmonySourceMode === 'chord_guide_only' || settings.harmonySourceMode === 'chord_guide_preferred') && chordGuideTrack;
   const maxTicks = Math.max(totalDurationTicks, ppq * 4);
   const meterMap = buildMeterMap(timeSignatures, ppq, maxTicks);
@@ -447,18 +727,13 @@ export function detectChords(
     }
   }
 
-  // Pre-filter harmonic notes
+  // Pre-filter harmonic notes (β0.4.2 Phase A & C: Exclude tracks with role 'exclude')
   const harmonicNotes = notes.filter(n => {
     const trk = trackMap.get(n.trackId);
     if (!trk || trk.settings.ignore) return false;
-    if (
-      trk.settings.role === 'ignore' ||
-      trk.settings.role === 'keyswitch' ||
-      trk.settings.role === 'percussion' ||
-      trk.settings.role === 'chord_guide'
-    ) {
-      return false;
-    }
+    const effectiveChordRole = trackEffectiveRoleMap.get(n.trackId) || 'primary_harmony';
+    if (effectiveChordRole === 'exclude') return false;
+    if (trk.settings.role === 'chord_guide') return false;
     if (n.pitch < trk.settings.analysisMinPitch || n.pitch > trk.settings.analysisMaxPitch) {
       return false;
     }
@@ -480,7 +755,7 @@ export function detectChords(
 
   const spanMode = settings.chordAnalysisSpan || 'auto';
 
-  // Helper for analyzing an arbitrary non-manual slice
+  // Helper for analyzing an arbitrary non-manual slice using Two-Pass Harmony Analysis
   const analyzeSlice = (
     startTicks: number,
     endTicks: number,
@@ -488,7 +763,7 @@ export function detectChords(
     curPrevType: ChordType | null
   ): { segment: ChordSegment; bestRoot: number; bestType: ChordType } => {
     const winTicks = endTicks - startTicks;
-    const meter = getMeterPosition(startTicks, ppq, timeSignatures);
+    const meter = ticksToMusicalPosition(startTicks, meterMap, ppq);
 
     if (winTicks <= 0) {
       const root = curPrevRoot !== null ? curPrevRoot : 0;
@@ -520,9 +795,12 @@ export function detectChords(
       };
     }
 
-    const pitchProfile = new Array(12).fill(0);
+    const primaryProfile = new Array(12).fill(0);
+    const supportingProfile = new Array(12).fill(0);
+    const melodyProfile = new Array(12).fill(0);
     let lowestBassPitch = 999;
     let lowestBassPc = -1;
+    let maxBassWeight = 0;
     let totalWeight = 0;
 
     const startBucket = Math.floor(startTicks / harmonicBucketSize);
@@ -542,35 +820,50 @@ export function detectChords(
         const overlapEnd = Math.min(endTicks, note.endTicks);
         if (overlapEnd <= overlapStart) continue;
 
-        const track = trackMap.get(note.trackId);
+        const effectiveRole = trackEffectiveRoleMap.get(note.trackId) || 'primary_harmony';
+        if (effectiveRole === 'exclude') continue;
+
         const overlapTicks = overlapEnd - overlapStart;
         const overlapRatio = overlapTicks / winTicks;
 
         let durWeight = getDurationWeight(note.durationTicks, ppq);
         if (!settings.reduceShortNoteInfluence) durWeight = 1.0;
 
-        const roleWeight = getRoleWeight(track);
-        if (roleWeight <= 0) continue;
-
         const velWeight = 0.3 + 0.7 * Math.max(0, Math.min(1, note.velocity));
-        const noteMeter = getMeterPosition(note.startTicks, ppq, timeSignatures);
-        const noteWeight = durWeight * velWeight * noteMeter.metricWeight * roleWeight * overlapRatio;
+        const noteMeter = ticksToMusicalPosition(note.startTicks, meterMap, ppq);
+        const baseWeight = durWeight * velWeight * noteMeter.metricWeight * overlapRatio;
 
-        pitchProfile[note.pitchClass] += noteWeight;
-        totalWeight += noteWeight;
+        if (effectiveRole === 'primary_harmony') {
+          primaryProfile[note.pitchClass] += baseWeight;
+          totalWeight += baseWeight;
+        } else if (effectiveRole === 'supporting_harmony') {
+          supportingProfile[note.pitchClass] += baseWeight;
+          totalWeight += baseWeight * 0.45;
+        } else if (effectiveRole === 'melody') {
+          melodyProfile[note.pitchClass] += baseWeight;
+          totalWeight += baseWeight * 0.15;
+        } else if (effectiveRole === 'bass_anchor') {
+          const bassWeight = baseWeight * (note.pitch < 48 ? 1.5 : 1.0);
+          if (bassWeight > maxBassWeight || (bassWeight >= maxBassWeight * 0.8 && note.pitch < lowestBassPitch)) {
+            maxBassWeight = bassWeight;
+            lowestBassPitch = note.pitch;
+            lowestBassPc = note.pitchClass;
+          }
+        }
 
-        const isBassTrack = track?.settings.role === 'bass' || track?.settings.detectedRole === 'bass';
-        if (isBassTrack) {
+        // Structural bass fallback if no bass_anchor note has matched
+        if (lowestBassPc === -1 || (lowestBassPitch === 999 && note.pitch < lowestBassPitch)) {
           if (note.pitch < lowestBassPitch) {
             lowestBassPitch = note.pitch;
             lowestBassPc = note.pitchClass;
           }
-        } else if (lowestBassPitch === 999 || note.pitch < lowestBassPitch) {
-          lowestBassPitch = note.pitch;
-          lowestBassPc = note.pitchClass;
         }
       }
     }
+
+    const pitchProfile = primaryProfile.map(
+      (p, i) => p + 0.45 * supportingProfile[i] + 0.15 * melodyProfile[i]
+    );
 
     if (totalWeight < 0.001) {
       const fallbackRoot = curPrevRoot !== null ? curPrevRoot : 0;
@@ -604,7 +897,18 @@ export function detectChords(
       };
     }
 
-    const top5 = scoreChordCandidates(pitchProfile, lowestBassPc, curPrevRoot, curPrevType, keyContext);
+    const top5 = scoreChordCandidates(
+      pitchProfile,
+      lowestBassPc,
+      curPrevRoot,
+      curPrevType,
+      keyContext,
+      {
+        primary: primaryProfile,
+        supporting: supportingProfile,
+        melody: melodyProfile,
+      }
+    );
     let best = top5[0];
 
     // Harmonic Smoothing
@@ -652,7 +956,7 @@ export function detectChords(
     .sort((a, b) => a.startTicks - b.startTicks);
 
   // -------------------------------------------------------------
-  // Priority 2: Manual Span Mode (half_bar, one_bar, two_bars, four_bars)
+  // Priority 2: Manual Span Mode (two_beats, half_bar, one_bar, two_bars, four_bars)
   // -------------------------------------------------------------
   if (spanMode !== 'auto') {
     const spanWindows = generateSpanWindows(meterMap, maxTicks, spanMode, ppq);
@@ -728,7 +1032,7 @@ export function detectChords(
   }
 
   // -------------------------------------------------------------
-  // Priority 3: Adaptive / Grid Mode with Harmonic Smoothing
+  // Priority 3: Adaptive / Grid Mode with Harmonic Smoothing & Multi-Resolution
   // -------------------------------------------------------------
   const minSegmentTicks = settings.minSegmentLength === '1/4_beat'
     ? Math.round(ppq / 4)
@@ -757,6 +1061,13 @@ export function detectChords(
 
     const barStarts = getBarStartTicks(meterMap, maxTicks);
     barStarts.forEach(tick => changePointsSet.add(tick));
+
+    // Phase H / Section 21: Auto Mode adds 2-beat candidate points from meterMap
+    const span2Beats = generateSpanWindows(meterMap, maxTicks, 'two_beats', ppq);
+    span2Beats.forEach(w => {
+      changePointsSet.add(w.startTicks);
+      changePointsSet.add(w.endTicks);
+    });
   } else {
     let gridTick = 0;
     while (gridTick < maxTicks) {
@@ -774,9 +1085,15 @@ export function detectChords(
     startTicks: number;
     endTicks: number;
     profile: number[];
+    primaryProfile: number[];
+    supportingProfile: number[];
+    melodyProfile: number[];
     lowestBassPc: number;
+    primaryWeight: number;
     totalWeight: number;
   }[] = [];
+
+  const multiBucketSeen = new Set<string>();
 
   for (let i = 0; i < changePoints.length - 1; i++) {
     const startTicks = changePoints[i];
@@ -784,14 +1101,21 @@ export function detectChords(
     if (endTicks - startTicks < Math.min(120, minSegmentTicks)) continue;
 
     const sliceTicks = endTicks - startTicks;
-    const pitchProfile = new Array(12).fill(0);
+    const primaryProfile = new Array(12).fill(0);
+    const supportingProfile = new Array(12).fill(0);
+    const melodyProfile = new Array(12).fill(0);
     let lowestBassPitch = 999;
     let lowestBassPc = -1;
+    let maxBassWeight = 0;
+    let primaryWeight = 0;
     let totalWeight = 0;
 
     const startBucket = Math.floor(startTicks / harmonicBucketSize);
     const endBucket = Math.floor(endTicks / harmonicBucketSize);
-    const sliceNotesSeen = new Set<string>();
+    const isSingleBucket = startBucket === endBucket;
+    if (!isSingleBucket) multiBucketSeen.clear();
+
+    const sliceMeterWeight = ticksToMusicalPosition(startTicks, meterMap, ppq).metricWeight;
 
     for (let b = startBucket; b <= endBucket; b++) {
       const bucketNotes = harmonicBuckets.get(b);
@@ -799,53 +1123,74 @@ export function detectChords(
 
       for (let k = 0; k < bucketNotes.length; k++) {
         const note = bucketNotes[k];
-        if (sliceNotesSeen.has(note.id)) continue;
-        sliceNotesSeen.add(note.id);
+        if (!isSingleBucket) {
+          if (multiBucketSeen.has(note.id)) continue;
+          multiBucketSeen.add(note.id);
+        }
 
         const overlapStart = Math.max(startTicks, note.startTicks);
         const overlapEnd = Math.min(endTicks, note.endTicks);
         if (overlapEnd <= overlapStart) continue;
 
-        const track = trackMap.get(note.trackId);
+        const effectiveRole = trackEffectiveRoleMap.get(note.trackId) || 'primary_harmony';
+        if (effectiveRole === 'exclude') continue;
+
         const overlapTicks = overlapEnd - overlapStart;
         const overlapRatio = overlapTicks / sliceTicks;
 
         let durWeight = getDurationWeight(note.durationTicks, ppq);
         if (!settings.reduceShortNoteInfluence) durWeight = 1.0;
 
-        const roleWeight = getRoleWeight(track);
-        if (roleWeight <= 0) continue;
-
         const velWeight = 0.3 + 0.7 * Math.max(0, Math.min(1, note.velocity));
-        const noteMeter = getMeterPosition(note.startTicks, ppq, timeSignatures);
-        const noteWeight = durWeight * velWeight * noteMeter.metricWeight * roleWeight * overlapRatio;
+        const metricWeight = note.startTicks === startTicks ? sliceMeterWeight : ticksToMusicalPosition(note.startTicks, meterMap, ppq).metricWeight;
+        const baseWeight = durWeight * velWeight * metricWeight * overlapRatio;
 
-        pitchProfile[note.pitchClass] += noteWeight;
-        totalWeight += noteWeight;
+        if (effectiveRole === 'primary_harmony') {
+          primaryProfile[note.pitchClass] += baseWeight;
+          primaryWeight += baseWeight;
+          totalWeight += baseWeight;
+        } else if (effectiveRole === 'supporting_harmony') {
+          supportingProfile[note.pitchClass] += baseWeight;
+          totalWeight += baseWeight * 0.45;
+        } else if (effectiveRole === 'melody') {
+          melodyProfile[note.pitchClass] += baseWeight;
+          totalWeight += baseWeight * 0.15;
+        } else if (effectiveRole === 'bass_anchor') {
+          const bassWeight = baseWeight * (note.pitch < 48 ? 1.5 : 1.0);
+          if (bassWeight > maxBassWeight || (bassWeight >= maxBassWeight * 0.8 && note.pitch < lowestBassPitch)) {
+            maxBassWeight = bassWeight;
+            lowestBassPitch = note.pitch;
+            lowestBassPc = note.pitchClass;
+          }
+        }
 
-        const isBassTrack = track?.settings.role === 'bass' || track?.settings.detectedRole === 'bass';
-        if (isBassTrack) {
+        if (lowestBassPc === -1 || (lowestBassPitch === 999 && note.pitch < lowestBassPitch)) {
           if (note.pitch < lowestBassPitch) {
             lowestBassPitch = note.pitch;
             lowestBassPc = note.pitchClass;
           }
-        } else if (lowestBassPitch === 999 || note.pitch < lowestBassPitch) {
-          lowestBassPitch = note.pitch;
-          lowestBassPc = note.pitchClass;
         }
       }
     }
+
+    const pitchProfile = primaryProfile.map(
+      (p, i) => p + 0.45 * supportingProfile[i] + 0.15 * melodyProfile[i]
+    );
 
     rawSegments.push({
       startTicks,
       endTicks,
       profile: pitchProfile,
+      primaryProfile,
+      supportingProfile,
+      melodyProfile,
       lowestBassPc,
+      primaryWeight,
       totalWeight,
     });
   }
 
-  // Merge Similar Slices using Harmonic Similarity & Hysteresis
+  // Merge Similar Slices using Harmonic Similarity & Chord Change Evidence (Phase I & J)
   const mergedSegments: typeof rawSegments = [];
   for (let i = 0; i < rawSegments.length; i++) {
     const curr = rawSegments[i];
@@ -859,13 +1204,23 @@ export function detectChords(
     const isCurrManual = manualSegments.some(m => m.startTicks <= curr.startTicks && m.endTicks >= curr.endTicks);
 
     const similarity = cosineSimilarity(prev.profile, curr.profile);
+    const primarySimilarity = cosineSimilarity(prev.primaryProfile, curr.primaryProfile);
+    const bassChanged = prev.lowestBassPc !== curr.lowestBassPc && prev.lowestBassPc >= 0 && curr.lowestBassPc >= 0;
 
-    if (!isPrevManual && !isCurrManual && (similarity > 0.85 || curr.totalWeight < 0.05)) {
+    // Strong Change: Don't merge if Primary Harmony shifted significantly or Bass shifted with distinct profile
+    const hasStrongChange = (primarySimilarity < 0.75 && (prev.primaryWeight > 0.1 || curr.primaryWeight > 0.1)) ||
+      (bassChanged && primarySimilarity < 0.85);
+
+    if (!isPrevManual && !isCurrManual && !hasStrongChange && (similarity > 0.85 || curr.totalWeight < 0.05)) {
       prev.endTicks = curr.endTicks;
       for (let p = 0; p < 12; p++) {
         prev.profile[p] += curr.profile[p];
+        prev.primaryProfile[p] += curr.primaryProfile[p];
+        prev.supportingProfile[p] += curr.supportingProfile[p];
+        prev.melodyProfile[p] += curr.melodyProfile[p];
       }
       prev.totalWeight += curr.totalWeight;
+      prev.primaryWeight += curr.primaryWeight;
       if (prev.lowestBassPc < 0 && curr.lowestBassPc >= 0) {
         prev.lowestBassPc = curr.lowestBassPc;
       }
@@ -938,7 +1293,18 @@ export function detectChords(
       continue;
     }
 
-    const top5 = scoreChordCandidates(seg.profile, seg.lowestBassPc, prevRoot, prevType, keyContext);
+    const top5 = scoreChordCandidates(
+      seg.profile,
+      seg.lowestBassPc,
+      prevRoot,
+      prevType,
+      keyContext,
+      {
+        primary: seg.primaryProfile,
+        supporting: seg.supportingProfile,
+        melody: seg.melodyProfile,
+      }
+    );
     let best = top5[0];
 
     // Harmonic Smoothing (Phase E & F: Core tone stability vs transient tension/melody notes)

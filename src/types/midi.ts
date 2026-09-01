@@ -10,6 +10,14 @@ export type TrackRole =
   | 'keyswitch' 
   | 'ignore';
 
+export type ChordAnalysisRole =
+  | 'primary_harmony'
+  | 'supporting_harmony'
+  | 'bass_anchor'
+  | 'melody'
+  | 'exclude'
+  | 'auto';
+
 export type RangePreset = 
   | 'all' 
   | 'ignore_below_c0' 
@@ -34,6 +42,8 @@ export type InstrumentFamily =
 
 export interface TrackClassification {
   suggestedRole: TrackRole;
+  suggestedChordRole?: ChordAnalysisRole;
+  chordRoleConfidence?: number;
   instrumentFamily: InstrumentFamily;
   instrumentName?: string;
   confidence: number;
@@ -49,6 +59,10 @@ export interface TrackSettings {
   role: TrackRole;
   detectedRole?: TrackRole;
   roleSource?: 'automatic' | 'manual';
+  chordAnalysisRole?: ChordAnalysisRole;
+  detectedChordAnalysisRole?: ChordAnalysisRole;
+  chordAnalysisRoleSource?: 'automatic' | 'manual';
+  chordRoleConfidence?: number;
   instrumentFamily?: InstrumentFamily;
   manualInstrumentFamily?: InstrumentFamily;
   classification?: TrackClassification;

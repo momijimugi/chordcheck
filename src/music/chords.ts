@@ -132,7 +132,7 @@ export const CHORD_DEFINITIONS: Record<ChordType, ChordDefinition> = {
     type: 'add9',
     name: 'Add 9th',
     shortName: 'add9',
-    intervals: [0, 2, 4, 7],
+    intervals: [0, 4, 7, 2],
     tensions: [9],
     alteredTensions: [],
   },

@@ -149,9 +149,10 @@ export const HarmonyTimeline: React.FC = () => {
             value={analysisSettings.chordAnalysisSpan || 'auto'}
             onChange={(e) => updateAnalysisSettings({ chordAnalysisSpan: e.target.value as ChordAnalysisSpan })}
             className="bg-[#202226] border border-[#3c404a] rounded px-1.5 py-0.5 text-[10px] text-slate-200 focus:outline-none focus:border-blue-500 cursor-pointer font-medium"
-            title="コード解析単位（テンションや経過音による過剰な変化を抑えたい場合は2小節などを指定）"
+            title="コード解析単位（テンションや経過音による過剰な変化を抑えたい場合は2小節、細かく分けたい場合は2拍などを指定）"
           >
             <option value="auto">自動</option>
+            <option value="two_beats">2拍</option>
             <option value="half_bar">1/2小節</option>
             <option value="one_bar">1小節</option>
             <option value="two_bars">2小節</option>

@@ -1,13 +1,14 @@
 import React from 'react';
 import { useApp } from '../state/AppContext';
-import { InstrumentFamily, RangePreset, TrackRole } from '../types/midi';
+import { ChordAnalysisRole, InstrumentFamily, RangePreset, TrackRole } from '../types/midi';
 import { 
   Eye, 
   EyeOff, 
   ShieldAlert, 
   Layers,
   Sparkles,
-  Drum
+  Drum,
+  Music2
 } from 'lucide-react';
 
 export const TrackList: React.FC = () => {
@@ -15,6 +16,7 @@ export const TrackList: React.FC = () => {
     workingMidi,
     selectedNoteId,
     updateTrackRole,
+    updateTrackChordRole,
     updateTrackRange,
     updateTrackInstrument,
     toggleTrackMute,
@@ -57,6 +59,19 @@ export const TrackList: React.FC = () => {
       case 'auto':
       default:
         return '自動判定';
+    }
+  };
+
+  const getChordRoleLabel = (role?: ChordAnalysisRole) => {
+    switch (role) {
+      case 'primary_harmony': return '主和声';
+      case 'supporting_harmony': return '補助和声';
+      case 'bass_anchor': return 'ベース';
+      case 'melody': return 'メロディ';
+      case 'exclude': return '除外';
+      case 'auto':
+      default:
+        return '自動';
     }
   };
 
@@ -186,6 +201,34 @@ export const TrackList: React.FC = () => {
                   <option value="percussion">ドラム / 打楽器</option>
                   <option value="keyswitch">キースイッチ / 除外</option>
                   <option value="ignore">解析から除外</option>
+                </select>
+              </div>
+
+              {/* Chord Analysis Role Selector (β0.4.2 Phase B & T) */}
+              <div className="flex items-center justify-between gap-1 mt-1">
+                <span className="text-[10px] text-slate-400">和声解析:</span>
+                <select
+                  value={settings.chordAnalysisRole || 'auto'}
+                  onChange={(e) => updateTrackChordRole(track.id, e.target.value as ChordAnalysisRole)}
+                  className={`border rounded px-1.5 py-0.5 text-[11px] focus:outline-none cursor-pointer flex-1 max-w-[145px] truncate ${
+                    settings.chordAnalysisRole === 'primary_harmony'
+                      ? 'bg-blue-950/60 border-blue-500 text-blue-200 font-semibold'
+                      : settings.chordAnalysisRole === 'bass_anchor'
+                      ? 'bg-purple-950/50 border-purple-500 text-purple-200 font-semibold'
+                      : settings.chordAnalysisRole === 'exclude'
+                      ? 'bg-slate-900 border-slate-700 text-slate-400'
+                      : 'bg-[#202226] border-[#3c404a] text-slate-200 focus:border-blue-500'
+                  }`}
+                  title="コード検出時の優先度・役割（主和声は骨格、ベースは根音、メロディはテンション評価に使用）"
+                >
+                  <option value="auto">
+                    自動 ({getChordRoleLabel(settings.detectedChordAnalysisRole || 'supporting_harmony')} {settings.chordRoleConfidence || 70}%)
+                  </option>
+                  <option value="primary_harmony">◎ 主和声 (骨格)</option>
+                  <option value="supporting_harmony">○ 補助和声</option>
+                  <option value="bass_anchor">B ベース (根音/ベース)</option>
+                  <option value="melody">△ メロディ (テンション)</option>
+                  <option value="exclude">― 除外 (和声不使用)</option>
                 </select>
               </div>
 

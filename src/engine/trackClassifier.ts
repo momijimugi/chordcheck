@@ -1,4 +1,4 @@
-import { InstrumentFamily, NoteData, TrackClassification, TrackData, TrackRole } from '../types/midi';
+import { ChordAnalysisRole, InstrumentFamily, NoteData, TrackClassification, TrackData, TrackRole } from '../types/midi';
 
 // Word-boundary / substring helper for clean matching
 function normalizeText(text: string): string {
@@ -225,8 +225,34 @@ export function classifyTrack(
     }
   }
 
+  // --- 6. Chord Analysis Role Deduction (β0.4.2 Phase A & B) ---
+  let suggestedChordRole: ChordAnalysisRole = 'supporting_harmony';
+  let chordRoleConfidence = 60;
+
+  if (drumConfidence >= 55 || isBassDrum) {
+    suggestedChordRole = 'exclude';
+    chordRoleConfidence = Math.max(80, drumConfidence);
+  } else if (hasAnyKeyword(name, CHORD_GUIDE_KEYWORDS)) {
+    suggestedChordRole = 'primary_harmony';
+    chordRoleConfidence = 95;
+  } else if (suggestedRole === 'bass') {
+    suggestedChordRole = 'bass_anchor';
+    chordRoleConfidence = 92;
+  } else if (family === 'piano' || family === 'guitar' || (family as string) === 'keyboard' || normName.includes('piano') || normName.includes('guitar') || normName.includes('keys')) {
+    suggestedChordRole = 'primary_harmony';
+    chordRoleConfidence = 88;
+  } else if (family === 'vocal' || suggestedRole === 'melody' || normName.includes('lead') || normName.includes('solo') || normName.includes('melody') || normName.includes('vocal')) {
+    suggestedChordRole = 'melody';
+    chordRoleConfidence = 90;
+  } else if (family === 'strings' || family === 'brass' || family === 'woodwind' || family === 'synth') {
+    suggestedChordRole = 'supporting_harmony';
+    chordRoleConfidence = 78;
+  }
+
   return {
     suggestedRole,
+    suggestedChordRole,
+    chordRoleConfidence,
     instrumentFamily: family,
     instrumentName: name || family,
     confidence: family !== 'unknown' ? familyConfidence : 50,
@@ -248,6 +274,12 @@ export function classifyAllTracks(tracks: TrackData[], ppq: number = 480): Track
     const finalRole = isManualRole ? prevSettings.role : (classification.suggestedRole || 'auto');
     const finalFamily = prevSettings.manualInstrumentFamily || classification.instrumentFamily;
 
+    // Respect existing manual chord analysis role override (β0.4.2 Phase B & N)
+    const isManualChordRole = prevSettings.chordAnalysisRoleSource === 'manual';
+    const finalChordRole = isManualChordRole 
+      ? (prevSettings.chordAnalysisRole || 'auto') 
+      : (prevSettings.chordAnalysisRole || 'auto');
+
     return {
       ...track,
       settings: {
@@ -255,6 +287,10 @@ export function classifyAllTracks(tracks: TrackData[], ppq: number = 480): Track
         detectedRole: classification.suggestedRole,
         role: finalRole,
         roleSource: isManualRole ? 'manual' : 'automatic',
+        chordAnalysisRole: finalChordRole,
+        detectedChordAnalysisRole: classification.suggestedChordRole || 'supporting_harmony',
+        chordAnalysisRoleSource: isManualChordRole ? 'manual' : 'automatic',
+        chordRoleConfidence: classification.chordRoleConfidence || 70,
         instrumentFamily: finalFamily,
         classification,
         ignore: finalRole === 'ignore' || finalRole === 'keyswitch' || finalRole === 'percussion',

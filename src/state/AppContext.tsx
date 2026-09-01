@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { AppState, ColorMode, FilterType, HistoryState } from '../types/state';
 import { AnalysisSettings, ChordCandidate, ChordSegment, ChordType, KeyContext, NoteAnalysis } from '../types/analysis';
-import { InstrumentFamily, MidiData, NoteData, RangePreset, TrackData, TrackRole } from '../types/midi';
+import { ChordAnalysisRole, InstrumentFamily, MidiData, NoteData, RangePreset, TrackData, TrackRole } from '../types/midi';
 import { DEFAULT_ANALYSIS_SETTINGS, PITCH_NAMES } from '../utils/constants';
 import { parseMidiFile } from '../engine/midiParser';
 import { exportMidiFile, getExportDiagnosticInfo, ExportDiagnosticInfo } from '../engine/midiExporter';
@@ -28,6 +28,7 @@ interface AppContextValue extends AppState {
   modifyChordSegment: (segmentId: string, root: number, type: ChordType, bass?: number) => void;
   overrideChordCandidate: (segmentId: string, candidate: ChordCandidate) => void;
   updateTrackRole: (trackId: number, role: TrackRole) => void;
+  updateTrackChordRole: (trackId: number, chordRole: ChordAnalysisRole) => void;
   updateTrackInstrument: (trackId: number, family: InstrumentFamily) => void;
   updateTrackRange: (trackId: number, preset: RangePreset, min?: number, max?: number) => void;
   toggleTrackMute: (trackId: number) => void;
@@ -511,6 +512,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     runAnalysis(nextMidi, analysisSettings, segments);
   }, [workingMidi, segments, analysisSettings, runAnalysis]);
 
+  const updateTrackChordRole = useCallback((trackId: number, chordRole: ChordAnalysisRole) => {
+    if (!workingMidi) return;
+    const updatedTracks = workingMidi.tracks.map(t => {
+      if (t.id === trackId) {
+        return {
+          ...t,
+          settings: {
+            ...t.settings,
+            chordAnalysisRole: chordRole,
+            chordAnalysisRoleSource: (chordRole === 'auto' ? 'automatic' : 'manual') as 'automatic' | 'manual',
+            ignore: chordRole === 'exclude' ? true : t.settings.ignore,
+          },
+        };
+      }
+      return t;
+    });
+
+    const nextMidi: MidiData = { ...workingMidi, tracks: updatedTracks };
+    setWorkingMidi(nextMidi);
+    runAnalysis(nextMidi, analysisSettings, segments);
+  }, [workingMidi, segments, analysisSettings, runAnalysis]);
+
   const updateTrackInstrument = useCallback((trackId: number, family: InstrumentFamily) => {
     if (!workingMidi) return;
     const updatedTracks = workingMidi.tracks.map(t => {
@@ -924,6 +947,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         modifyChordSegment,
         overrideChordCandidate,
         updateTrackRole,
+        updateTrackChordRole,
         updateTrackInstrument,
         updateTrackRange,
         toggleTrackMute,

@@ -110,7 +110,7 @@ export const MainLayout: React.FC = () => {
             </div>
 
             <h1 className="text-2xl font-black text-white mb-2 tracking-wide">
-              MIDI Harmony Inspector <span className="text-xs uppercase font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">β0.4.1.1</span>
+              MIDI Harmony Inspector <span className="text-xs uppercase font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">β0.4.2</span>
             </h1>
             <p className="text-sm text-slate-400 max-w-md mx-auto mb-8">
               複数トラックMIDIの和声スペルチェッカー＆リンター。コード進行を自動推定し、コード外音や衝突を検出。DAW用に安全に修正・書き出しできます。

@@ -37,7 +37,7 @@ export const SettingsModal: React.FC = () => {
         <div className="flex items-center justify-between pb-4 border-b border-[#2e3238]">
           <div className="flex items-center gap-2">
             <Settings className="w-5 h-5 text-emerald-400" />
-            <h3 className="font-bold text-base text-slate-100">設定・MIDI診断 (β0.4.1.1)</h3>
+            <h3 className="font-bold text-base text-slate-100">設定・MIDI診断 (β0.4.2)</h3>
           </div>
           <button
             onClick={() => setSettingsOpen(false)}
