@@ -1,9 +1,8 @@
 import { NoteAnalysis, RiskLevel, SuggestedPitch, VoiceCollision, AnalysisSettings, ChordSegment, CategorizedReasons } from '../types/analysis';
 import { NoteData, TrackData, TimeSignatureInfo } from '../types/midi';
-import { evaluateNoteRelation, CHORD_DEFINITIONS } from '../music/chords';
+import { evaluateNoteRelation } from '../music/chords';
 import { getMeterPosition } from '../music/meter';
-import { formatDurationTicks, pitchToName, getPitchClass } from '../music/pitch';
-import { isSemitoneClash, isWholeToneClash } from '../music/interval';
+import { formatDurationTicks } from '../music/pitch';
 import { analyzeNonChordTone } from './nonChordToneAnalyzer';
 import { RISK_THRESHOLDS } from '../utils/constants';
 
@@ -43,76 +42,76 @@ export function calculateNoteRisk(
     prevSegment
   );
 
-  // 1. Harmony Relation Evaluation
+  // 1. 和声関係の評価 (Harmony Relation)
   if (relation.isChordTone) {
     score += settings.chordToneBonus;
-    const r = `Chord tone (${relation.intervalName}) in ${currentSegment.displayName}`;
+    const r = `コード構成音 (${relation.intervalName}) - コード: ${currentSegment.displayName}`;
     reasons.push(r);
     categorized.harmony.push(r);
   } else if (relation.isTension) {
     score -= 20;
-    const r = `Permissible tension (${relation.intervalName}) in ${currentSegment.displayName}`;
+    const r = `許容テンション (${relation.intervalName}) - コード: ${currentSegment.displayName}`;
     reasons.push(r);
     categorized.harmony.push(r);
   } else if (relation.isAlteredTension) {
     score += 15;
-    const r = `Altered tension (${relation.intervalName}) in ${currentSegment.displayName}`;
+    const r = `オルタードテンション (${relation.intervalName}) - コード: ${currentSegment.displayName}`;
     reasons.push(r);
     categorized.harmony.push(r);
   } else {
     score += settings.unknownChromaticPenalty;
-    const r = `Non-chord tone (${relation.intervalName}) against ${currentSegment.displayName}`;
+    const r = `コード外音 (${relation.intervalName}) - コード: ${currentSegment.displayName}`;
     reasons.push(r);
     categorized.harmony.push(r);
   }
 
-  // 2. Melodic Context / Non-chord tone resolution
+  // 2. 旋律・声部連結 (Melodic Context)
   if (nctResult.type === 'passing') {
     score += settings.passingToneBonus;
-    const r = nctResult.label || 'Passing tone';
+    const r = nctResult.label || '経過音';
     reasons.push(r);
     categorized.melodic.push(r);
   } else if (nctResult.type === 'chromatic_passing') {
     score += (settings.passingToneBonus + 5);
-    const r = nctResult.label || 'Chromatic passing tone';
+    const r = nctResult.label || '半音階経過音';
     reasons.push(r);
     categorized.melodic.push(r);
   } else if (nctResult.type === 'neighbor') {
     score += settings.neighborToneBonus;
-    const r = nctResult.label || 'Neighbor tone';
+    const r = nctResult.label || '刺繍音';
     reasons.push(r);
     categorized.melodic.push(r);
   } else if (nctResult.type === 'anticipation') {
     score -= 30;
-    const r = nctResult.label || 'Anticipation';
+    const r = nctResult.label || '先行動音';
     reasons.push(r);
     categorized.melodic.push(r);
   } else if (nctResult.type === 'suspension') {
     score -= 30;
-    const r = nctResult.label || 'Suspension';
+    const r = nctResult.label || '掛留音';
     reasons.push(r);
     categorized.melodic.push(r);
   } else if (!relation.isChordTone && !relation.isTension) {
     if (!nctResult.isResolved) {
       score += settings.unresolvedPenalty;
-      const r = 'Unresolved non-chord tone (no stepwise resolution)';
+      const r = '未解決のコード外音（順次解決なし）';
       reasons.push(r);
       categorized.melodic.push(r);
     }
   }
 
-  // 3. Timing / Metric Position
+  // 3. タイミング・拍 (Timing & Metric)
   if (meter.isDownbeat) {
     if (!relation.isChordTone) {
       score += settings.strongBeatPenalty;
-      const r = 'Occurs on downbeat (Bar start)';
+      const r = '小節頭拍（最も強い拍）に配置';
       reasons.push(r);
       categorized.timing.push(r);
     }
   } else if (meter.isStrongBeat) {
     if (!relation.isChordTone) {
       score += (settings.strongBeatPenalty - 5);
-      const r = 'Occurs on strong beat';
+      const r = '強拍に配置';
       reasons.push(r);
       categorized.timing.push(r);
     }
@@ -120,24 +119,24 @@ export function calculateNoteRisk(
     score += settings.weakBeatBonus;
   }
 
-  // 4. Duration
+  // 4. 音長 (Duration)
   if (durationRatio >= 1.0) {
     if (!relation.isChordTone && !relation.isTension) {
       score += settings.longDurationPenalty;
-      const r = `Long duration (${durationDesc})`;
+      const r = `長い音長 (${durationDesc}) でコード外音が鳴存`;
       reasons.push(r);
       categorized.timing.push(r);
     }
   } else if (durationRatio <= 0.5) {
     score += settings.shortDurationBonus;
     if (!relation.isChordTone) {
-      const r = `Short duration (${durationDesc})`;
+      const r = `短い音長 (${durationDesc})`;
       reasons.push(r);
       categorized.timing.push(r);
     }
   }
 
-  // 5. Multi-voice Collision Detection with Absolute Register checks (Section 32)
+  // 5. 他声部との衝突検出 (Voice Collision)
   const collisions: VoiceCollision[] = [];
   const trackMap = new Map<number, TrackData>();
   for (const t of allTracks) trackMap.set(t.id, t);
@@ -159,9 +158,9 @@ export function calculateNoteRisk(
 
       // Direct Minor 2nd (1 semitone) or close Minor 9th (13 semitones)
       if (semitoneDist === 1 || semitoneDist === 13) {
-        const intervalName = semitoneDist === 1 ? 'Minor 2nd' : 'Minor 9th';
-        const otherTrackName = otherTrack ? otherTrack.name : `Track ${otherNote.trackId}`;
-        const clashDesc = `Clashes with ${otherTrackName} (${otherNote.name}) via ${intervalName}`;
+        const intervalName = semitoneDist === 1 ? '短2度 (半音差)' : '短9度';
+        const otherTrackName = otherTrack ? otherTrack.name : `トラック ${otherNote.trackId}`;
+        const clashDesc = `トラック「${otherTrackName}」(${otherNote.name}) と ${intervalName} で衝突`;
         
         collisions.push({
           otherNoteId: otherNote.id,

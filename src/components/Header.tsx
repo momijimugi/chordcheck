@@ -10,7 +10,6 @@ import {
   Play, 
   Square, 
   Settings, 
-  Layers, 
   Palette,
   Sparkles,
   Music2
@@ -54,9 +53,9 @@ export const Header: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <span className="font-bold text-sm text-slate-100 tracking-wide">MIDI Harmony Inspector</span>
-            <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">β版</span>
+            <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">β0.2版</span>
           </div>
-          <p className="text-[11px] text-slate-400">Harmony Spell Checker & Linter</p>
+          <p className="text-[11px] text-slate-400">MIDI和声スペルチェッカー＆リンター</p>
         </div>
       </div>
 
@@ -73,10 +72,10 @@ export const Header: React.FC = () => {
         <button
           onClick={() => fileInputRef.current?.click()}
           className="px-3 py-1.5 rounded-md bg-[#272a30] hover:bg-[#32363e] text-slate-200 text-xs font-medium flex items-center gap-1.5 border border-[#3c404a] transition"
-          title="Open MIDI file (.mid)"
+          title="MIDIファイルを開く (.mid, .midi)"
         >
           <FolderOpen className="w-3.5 h-3.5 text-blue-400" />
-          <span>Open MIDI</span>
+          <span>MIDIを開く</span>
         </button>
 
         {/* Demo Presets Dropdown */}
@@ -88,10 +87,10 @@ export const Header: React.FC = () => {
               onChange={(e) => {
                 if (e.target.value) loadDemo(e.target.value as DemoCaseId);
               }}
-              className="bg-transparent text-xs text-slate-200 focus:outline-none cursor-pointer max-w-[190px] truncate"
-              title="Built-in test cases from specification"
+              className="bg-transparent text-xs text-slate-200 focus:outline-none cursor-pointer max-w-[200px] truncate"
+              title="組み込みテスト用デモ楽曲を選択"
             >
-              <option value="" disabled className="bg-[#202226] text-slate-400">Select Test Case / Demo</option>
+              <option value="" disabled className="bg-[#202226] text-slate-400">デモ楽曲を選択...</option>
               {DEMO_PRESETS.map((preset) => (
                 <option key={preset.id} value={preset.id} className="bg-[#202226] text-slate-200">
                   {preset.name}
@@ -109,7 +108,7 @@ export const Header: React.FC = () => {
             onClick={undo}
             disabled={past.length === 0}
             className="px-2 py-1.5 hover:bg-[#32363e] disabled:opacity-40 disabled:hover:bg-transparent text-slate-300 transition"
-            title="Undo (Ctrl+Z)"
+            title="元に戻す (Ctrl+Z)"
           >
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
@@ -118,7 +117,7 @@ export const Header: React.FC = () => {
             onClick={redo}
             disabled={future.length === 0}
             className="px-2 py-1.5 hover:bg-[#32363e] disabled:opacity-40 disabled:hover:bg-transparent text-slate-300 transition"
-            title="Redo (Ctrl+Y / Ctrl+Shift+Z)"
+            title="やり直す (Ctrl+Y / Ctrl+Shift+Z)"
           >
             <RotateCw className="w-3.5 h-3.5" />
           </button>
@@ -127,20 +126,22 @@ export const Header: React.FC = () => {
         {/* Reset All */}
         <button
           onClick={resetAll}
-          className="px-2.5 py-1.5 rounded-md bg-[#272a30] hover:bg-[#32363e] text-slate-300 text-xs font-medium flex items-center gap-1 border border-[#3c404a] transition"
-          title="Reset all pitch changes to original imported MIDI"
+          disabled={!workingMidi}
+          className="px-2.5 py-1.5 rounded-md bg-[#272a30] hover:bg-[#32363e] disabled:opacity-40 text-slate-300 text-xs font-medium flex items-center gap-1 border border-[#3c404a] transition"
+          title="すべての変更を読み込み時の初期状態にリセット"
         >
-          <span>Reset All</span>
+          <span>リセット</span>
         </button>
 
         {/* Reanalyze */}
         <button
           onClick={reanalyze}
-          className="px-2.5 py-1.5 rounded-md bg-[#272a30] hover:bg-[#32363e] text-slate-300 text-xs font-medium flex items-center gap-1 border border-[#3c404a] transition"
-          title="Re-run harmony detection & note linter"
+          disabled={!workingMidi}
+          className="px-2.5 py-1.5 rounded-md bg-[#272a30] hover:bg-[#32363e] disabled:opacity-40 text-slate-300 text-xs font-medium flex items-center gap-1 border border-[#3c404a] transition"
+          title="和声とノートの整合性を再解析"
         >
           <RefreshCw className="w-3.5 h-3.5 text-sky-400" />
-          <span>Reanalyze</span>
+          <span>再解析</span>
         </button>
 
         <div className="h-4 w-[1px] bg-[#3c404a] mx-1" />
@@ -148,22 +149,23 @@ export const Header: React.FC = () => {
         {/* Playback Button */}
         <button
           onClick={togglePlay}
-          className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 border transition ${
+          disabled={!workingMidi}
+          className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 border transition disabled:opacity-40 ${
             isPlaying
               ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500/30'
               : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30'
           }`}
-          title="Play / Pause Audio Preview (Space)"
+          title="音声プレビューの再生 / 停止 (Space)"
         >
           {isPlaying ? (
             <>
               <Square className="w-3.5 h-3.5 fill-current" />
-              <span>Stop</span>
+              <span>停止</span>
             </>
           ) : (
             <>
               <Play className="w-3.5 h-3.5 fill-current" />
-              <span>Play</span>
+              <span>再生</span>
             </>
           )}
         </button>
@@ -173,10 +175,10 @@ export const Header: React.FC = () => {
           onClick={exportMidi}
           disabled={!workingMidi}
           className="px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm shadow-emerald-950/40 transition"
-          title="Export corrected Standard MIDI File (.mid) for DAW"
+          title="修正後のStandard MIDIファイル (.mid) を非破壊で書き出し"
         >
           <Download className="w-3.5 h-3.5" />
-          <span>Export MIDI</span>
+          <span>MIDI書き出し</span>
         </button>
       </div>
 
@@ -186,17 +188,17 @@ export const Header: React.FC = () => {
         <button
           onClick={() => setColorMode(colorMode === 'risk' ? 'track' : 'risk')}
           className="px-2.5 py-1.5 rounded-md bg-[#272a30] hover:bg-[#32363e] text-slate-300 text-xs font-medium flex items-center gap-1.5 border border-[#3c404a] transition"
-          title="Toggle note coloring by Risk status or Track color"
+          title="ノートの色分け（危険度 / トラック別）を切り替え"
         >
           <Palette className="w-3.5 h-3.5 text-purple-400" />
-          <span>{colorMode === 'risk' ? 'Risk Colors' : 'Track Colors'}</span>
+          <span>{colorMode === 'risk' ? '危険度カラー' : 'トラックカラー'}</span>
         </button>
 
         {/* Settings Modal Toggle */}
         <button
           onClick={() => setSettingsOpen(true)}
           className="p-1.5 rounded-md bg-[#272a30] hover:bg-[#32363e] text-slate-300 border border-[#3c404a] transition"
-          title="Analysis Settings & Resolution"
+          title="解析設定・分解能・重み付けの調整"
         >
           <Settings className="w-4 h-4" />
         </button>

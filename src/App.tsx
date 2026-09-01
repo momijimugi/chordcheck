@@ -38,7 +38,7 @@ export const MainLayout: React.FC = () => {
       if (file.name.endsWith('.mid') || file.name.endsWith('.midi')) {
         loadMidiFile(file);
       } else {
-        alert('Please drop a valid MIDI file (.mid or .midi).');
+        alert('有効なMIDIファイル（.mid または .midi）を選択してください。');
       }
     }
   };
@@ -99,7 +99,7 @@ export const MainLayout: React.FC = () => {
               MIDI Harmony Inspector <span className="text-xs uppercase font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">β0.2</span>
             </h1>
             <p className="text-sm text-slate-400 max-w-md mx-auto mb-8">
-              Harmony spell checker and linter for multi-track MIDI. Detect chord progressions, highlight outside notes, and safely fix pitches for your DAW.
+              複数トラックMIDIの和声スペルチェッカー＆リンター。コード進行を自動推定し、コード外音や衝突を検出。DAW用に安全に修正・書き出しできます。
             </p>
 
             {/* Drop Zone & Open Button */}
@@ -110,10 +110,10 @@ export const MainLayout: React.FC = () => {
               <UploadCloud className="w-10 h-10 text-emerald-400 group-hover:scale-110 transition duration-200" />
               <div>
                 <span className="text-sm font-semibold text-slate-200 block">
-                  Drag & Drop MIDI file here
+                  ここにMIDIファイルをドラッグ＆ドロップ
                 </span>
                 <span className="text-xs text-slate-500">
-                  or click to browse (.mid, .midi)
+                  またはクリックしてファイルを選択 (.mid, .midi)
                 </span>
               </div>
             </div>
@@ -123,7 +123,7 @@ export const MainLayout: React.FC = () => {
               <div className="flex items-center justify-center gap-2 mb-3">
                 <Sparkles className="w-4 h-4 text-amber-400" />
                 <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                  Or Test with Built-in Demo Suite:
+                  テスト用デモ楽曲でお試し:
                 </span>
               </div>
 
@@ -148,7 +148,7 @@ export const MainLayout: React.FC = () => {
             {/* Privacy Guarantee Note */}
             <div className="mt-8 pt-4 border-t border-[#2e3238] flex items-center justify-center gap-2 text-xs text-slate-500">
               <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
-              <span>100% Client-side Processing. Your MIDI data never leaves your browser.</span>
+              <span>完全ブラウザ内ローカル処理。MIDIデータが外部サーバーへ送信されることは一切ありません。</span>
             </div>
           </div>
         </div>
@@ -161,9 +161,9 @@ export const MainLayout: React.FC = () => {
       {isDragOver && (
         <div className="absolute inset-0 bg-emerald-950/80 backdrop-blur-sm border-4 border-dashed border-emerald-400 z-50 flex flex-col items-center justify-center p-8 text-center pointer-events-none animate-in fade-in duration-150">
           <UploadCloud className="w-16 h-16 text-emerald-400 mb-4 animate-bounce" />
-          <h2 className="text-2xl font-bold text-white mb-1">Drop your MIDI file here</h2>
+          <h2 className="text-2xl font-bold text-white mb-1">ここにMIDIファイルをドロップ</h2>
           <p className="text-sm text-emerald-200">
-            Standard MIDI Files (.mid, .midi) are analyzed completely locally in your browser.
+            Standard MIDIファイル（.mid, .midi）はブラウザ内で100%安全に解析されます。
           </p>
         </div>
       )}

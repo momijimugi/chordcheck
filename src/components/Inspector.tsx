@@ -14,8 +14,7 @@ import {
   Music,
   Check,
   ShieldAlert,
-  GitCommit,
-  Radio
+  GitCommit
 } from 'lucide-react';
 
 export const Inspector: React.FC = () => {
@@ -30,7 +29,7 @@ export const Inspector: React.FC = () => {
     return (
       <aside className="w-80 bg-[#18191c] border-l border-[#2e3238] flex flex-col items-center justify-center p-6 text-center select-none shrink-0 text-slate-500">
         <Music className="w-8 h-8 text-slate-600 mb-2" />
-        <p className="text-xs font-medium">Select a note on the timeline to inspect harmony relations and view suggestions.</p>
+        <p className="text-xs font-medium">ピアノロール上のノートをクリックすると、コードに対する関係性や修正候補が表示されます。</p>
       </aside>
     );
   }
@@ -41,7 +40,7 @@ export const Inspector: React.FC = () => {
   if (!selectedNote || !analysis) {
     return (
       <aside className="w-80 bg-[#18191c] border-l border-[#2e3238] p-4 text-slate-500 text-xs shrink-0">
-        Note data not found.
+        ノートデータが見つかりません。
       </aside>
     );
   }
@@ -74,7 +73,7 @@ export const Inspector: React.FC = () => {
             <button
               onClick={() => handleAudition(analysis.pitch)}
               className="p-1.5 rounded-full bg-[#272a30] hover:bg-[#32363e] text-slate-300 transition"
-              title="Audition Note"
+              title="この音を試聴"
             >
               <Volume2 className="w-3.5 h-3.5" />
             </button>
@@ -92,33 +91,33 @@ export const Inspector: React.FC = () => {
 
         {/* Pitch Steppers */}
         <div className="mt-3 flex items-center justify-between gap-1">
-          <span className="text-[11px] text-slate-400 font-semibold">Nudge:</span>
+          <span className="text-[11px] text-slate-400 font-semibold">音高変更:</span>
           <div className="flex items-center gap-1">
             <button
               onClick={() => modifyNotePitch(analysis.noteId, analysis.pitch - 12)}
               className="px-2 py-1 rounded bg-[#272a30] hover:bg-[#32363e] text-[10px] font-mono text-slate-300 transition"
-              title="Down 1 Octave (-12)"
+              title="1オクターブ下げる (-12)"
             >
               -12
             </button>
             <button
               onClick={() => modifyNotePitch(analysis.noteId, analysis.pitch - 1)}
               className="px-2 py-1 rounded bg-[#272a30] hover:bg-[#32363e] text-[10px] font-mono text-slate-300 transition"
-              title="Down 1 Semitone (-1)"
+              title="半音下げる (-1)"
             >
               -1
             </button>
             <button
               onClick={() => modifyNotePitch(analysis.noteId, analysis.pitch + 1)}
               className="px-2 py-1 rounded bg-[#272a30] hover:bg-[#32363e] text-[10px] font-mono text-slate-300 transition"
-              title="Up 1 Semitone (+1)"
+              title="半音上げる (+1)"
             >
               +1
             </button>
             <button
               onClick={() => modifyNotePitch(analysis.noteId, analysis.pitch + 12)}
               className="px-2 py-1 rounded bg-[#272a30] hover:bg-[#32363e] text-[10px] font-mono text-slate-300 transition"
-              title="Up 1 Octave (+12)"
+              title="1オクターブ上げる (+12)"
             >
               +12
             </button>
@@ -129,18 +128,18 @@ export const Inspector: React.FC = () => {
       {/* Harmony Context Details */}
       <div className="p-4 space-y-2.5 text-xs">
         <h4 className="font-bold text-slate-300 text-[11px] uppercase tracking-wider mb-2">
-          Harmony & Context
+          和声・コンテキスト情報
         </h4>
 
         {/* Track */}
         <div className="flex items-center justify-between">
-          <span className="text-slate-400">Track:</span>
+          <span className="text-slate-400">トラック:</span>
           <span className="font-semibold text-slate-200">{analysis.trackName}</span>
         </div>
 
         {/* Chord */}
         <div className="flex items-center justify-between">
-          <span className="text-slate-400">Estimated Chord:</span>
+          <span className="text-slate-400">推定コード:</span>
           <span className="font-bold text-blue-300 bg-blue-950/40 px-1.5 py-0.5 rounded border border-blue-500/30">
             {analysis.chordDisplayName}
           </span>
@@ -148,7 +147,7 @@ export const Inspector: React.FC = () => {
 
         {/* Relation */}
         <div className="flex items-center justify-between">
-          <span className="text-slate-400">Relation:</span>
+          <span className="text-slate-400">コードとの関係:</span>
           <span className={`font-semibold ${
             analysis.relation.isChordTone ? 'text-emerald-400' :
             analysis.relation.isTension ? 'text-sky-400' :
@@ -160,19 +159,19 @@ export const Inspector: React.FC = () => {
 
         {/* Position */}
         <div className="flex items-center justify-between">
-          <span className="text-slate-400">Position:</span>
+          <span className="text-slate-400">発音位置:</span>
           <span className="font-mono text-slate-300 text-[11px]">{analysis.positionDescription}</span>
         </div>
 
         {/* Duration */}
         <div className="flex items-center justify-between">
-          <span className="text-slate-400">Duration:</span>
+          <span className="text-slate-400">音長:</span>
           <span className="font-mono text-slate-300 text-[11px]">{analysis.durationDescription}</span>
         </div>
 
         {/* Resolution */}
         <div className="flex items-center justify-between">
-          <span className="text-slate-400">Resolution:</span>
+          <span className="text-slate-400">解決先 / 進行:</span>
           <span className="text-slate-300 font-medium text-[11px] text-right max-w-[150px] truncate" title={analysis.resolutionDescription}>
             {analysis.resolutionDescription}
           </span>
@@ -180,7 +179,7 @@ export const Inspector: React.FC = () => {
 
         {/* Risk Score */}
         <div className="flex items-center justify-between pt-1">
-          <span className="text-slate-400">Risk Score:</span>
+          <span className="text-slate-400">危険度スコア:</span>
           <span className={`font-mono font-bold ${riskConfig.text}`}>
             {analysis.riskScore} / 100
           </span>
@@ -191,7 +190,7 @@ export const Inspector: React.FC = () => {
       <div className="p-4 space-y-2.5">
         <h4 className="font-bold text-slate-300 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
           <HelpCircle className="w-3.5 h-3.5 text-slate-400" />
-          <span>Analysis Reasons</span>
+          <span>判定理由</span>
         </h4>
 
         <div className="space-y-2 mt-2">
@@ -200,7 +199,7 @@ export const Inspector: React.FC = () => {
             <div className="bg-[#202226] p-2 rounded-lg border border-[#2e3238]">
               <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider flex items-center gap-1 mb-1">
                 <Music className="w-3 h-3" />
-                <span>Harmony</span>
+                <span>和声 (Harmony)</span>
               </span>
               <ul className="space-y-1 text-xs text-slate-300">
                 {cat.harmony.map((r, i) => (
@@ -215,7 +214,7 @@ export const Inspector: React.FC = () => {
             <div className="bg-[#202226] p-2 rounded-lg border border-[#2e3238]">
               <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1 mb-1">
                 <Clock className="w-3 h-3" />
-                <span>Timing & Metric</span>
+                <span>タイミング・拍 (Timing & Metric)</span>
               </span>
               <ul className="space-y-1 text-xs text-slate-300">
                 {cat.timing.map((r, i) => (
@@ -230,7 +229,7 @@ export const Inspector: React.FC = () => {
             <div className="bg-[#202226] p-2 rounded-lg border border-[#2e3238]">
               <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider flex items-center gap-1 mb-1">
                 <GitCommit className="w-3 h-3" />
-                <span>Melodic Voice Leading</span>
+                <span>旋律・声部連結 (Melodic Context)</span>
               </span>
               <ul className="space-y-1 text-xs text-slate-300">
                 {cat.melodic.map((r, i) => (
@@ -245,7 +244,7 @@ export const Inspector: React.FC = () => {
             <div className="bg-[#202226] p-2 rounded-lg border border-[#2e3238]">
               <span className="text-[10px] font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1 mb-1">
                 <ShieldAlert className="w-3 h-3" />
-                <span>Voice Collision</span>
+                <span>声部衝突 (Voice Collision)</span>
               </span>
               <ul className="space-y-1 text-xs text-slate-300">
                 {cat.collision.map((r, i) => (
@@ -262,7 +261,7 @@ export const Inspector: React.FC = () => {
         <div className="p-4 space-y-2.5">
           <h4 className="font-bold text-slate-300 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
             <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span>Suggested Pitch Corrections</span>
+            <span>推奨される修正候補</span>
           </h4>
 
           <div className="space-y-1.5 mt-2">
@@ -281,7 +280,7 @@ export const Inspector: React.FC = () => {
                     <button
                       onClick={() => handleAudition(sug.pitch)}
                       className="p-1 rounded bg-[#2c2f36] hover:bg-[#383c45] text-slate-300 transition"
-                      title="Audition Suggestion"
+                      title="修正候補の音を試聴"
                     >
                       <Volume2 className="w-3 h-3" />
                     </button>
@@ -289,7 +288,7 @@ export const Inspector: React.FC = () => {
                       <div className="flex items-center gap-1.5">
                         <span className="font-bold text-xs text-slate-100">{sug.pitchName}</span>
                         <span className="text-[10px] text-slate-400 font-mono">
-                          ({sug.diffSemitones > 0 ? `+${sug.diffSemitones}` : sug.diffSemitones} st)
+                          ({sug.diffSemitones > 0 ? `+${sug.diffSemitones}` : sug.diffSemitones} 半音)
                         </span>
                       </div>
                       <span className="text-[10px] text-emerald-400 font-medium block">
@@ -302,10 +301,10 @@ export const Inspector: React.FC = () => {
                     <button
                       onClick={() => modifyNotePitch(analysis.noteId, sug.pitch)}
                       className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-semibold flex items-center gap-1 shadow-sm transition"
-                      title="Apply this pitch change"
+                      title="この音高に変更を適用"
                     >
                       <Check className="w-3 h-3" />
-                      <span>Apply</span>
+                      <span>適用</span>
                     </button>
                   )}
                 </div>

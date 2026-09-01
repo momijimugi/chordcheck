@@ -34,7 +34,7 @@ describe('MIDI Harmony Inspector Core Engine', () => {
     expect(analysis).toBeDefined();
     expect(['CHECK', 'WARNING']).toContain(analysis?.status);
     expect(analysis?.relation.isNonChordTone).toBe(true);
-    expect(analysis?.reasons.some(r => r.includes('Non-chord tone'))).toBe(true);
+    expect(analysis?.reasons.some(r => r.includes('コード外音') || r.includes('Non-chord tone'))).toBe(true);
 
     // Suggestions should include G4 (67) or E4 (64)
     expect(analysis?.suggestions.length).toBeGreaterThan(0);

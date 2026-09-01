@@ -1,9 +1,9 @@
 import React, { useRef, useEffect, useCallback, useMemo } from 'react';
 import { useApp } from '../state/AppContext';
-import { PITCH_NAMES, RISK_COLORS } from '../utils/constants';
+import { RISK_COLORS } from '../utils/constants';
 import { pitchToName, getPitchClass } from '../music/pitch';
 import { MidiData } from '../types/midi';
-import { ZoomIn, ZoomOut, Maximize2, Music } from 'lucide-react';
+import { ZoomIn, ZoomOut, Music } from 'lucide-react';
 
 const MIN_PITCH = 12;  // C0
 const MAX_PITCH = 108; // C8
@@ -15,9 +15,9 @@ export const PianoRollEmptyState: React.FC = () => {
       <div className="w-12 h-12 rounded-full bg-[#1e2025] flex items-center justify-center mb-3 border border-[#2e3238]">
         <Music className="w-6 h-6 text-slate-600" />
       </div>
-      <h3 className="font-semibold text-slate-300 mb-1">No MIDI Project Loaded</h3>
+      <h3 className="font-semibold text-slate-300 mb-1">MIDIデータが読み込まれていません</h3>
       <p className="text-xs text-slate-500 max-w-sm">
-        Drag and drop a MIDI file anywhere on the screen, or open a file / sample demo from the toolbar above.
+        MIDIファイルを画面上にドラッグ＆ドロップするか、上部ツールバーからファイルまたはデモ楽曲を開いてください。
       </p>
     </div>
   );
@@ -312,29 +312,29 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
         <button
           onClick={handleFitProject}
           className="px-2 py-1 rounded bg-[#272a30] hover:bg-[#32363e] text-[10px] font-medium text-slate-300 transition"
-          title="Fit entire project length horizontally"
+          title="楽曲全体を横幅いっぱいに表示"
         >
-          Fit Project
+          全体表示
         </button>
         <button
           onClick={handleFitNotes}
           className="px-2 py-1 rounded bg-[#272a30] hover:bg-[#32363e] text-[10px] font-medium text-slate-300 transition"
-          title="Center active note pitch range"
+          title="発音されている音域を縦方向の中央に表示"
         >
-          Fit Notes
+          音域中央
         </button>
         <div className="w-[1px] h-3 bg-[#3c404a] mx-0.5" />
         <button
           onClick={() => setZoomX((z: number) => z * 1.25)}
           className="p-1 rounded bg-[#272a30] hover:bg-[#32363e] text-slate-300 transition"
-          title="Zoom In Time (Horizontal)"
+          title="時間軸を拡大 (横ズーム+)"
         >
           <ZoomIn className="w-3.5 h-3.5" />
         </button>
         <button
           onClick={() => setZoomX((z: number) => z * 0.8)}
           className="p-1 rounded bg-[#272a30] hover:bg-[#32363e] text-slate-300 transition"
-          title="Zoom Out Time (Horizontal)"
+          title="時間軸を縮小 (横ズーム-)"
         >
           <ZoomOut className="w-3.5 h-3.5" />
         </button>
@@ -342,16 +342,16 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
         <button
           onClick={() => setZoomY((z: number) => z + 2)}
           className="px-1.5 py-0.5 rounded bg-[#272a30] hover:bg-[#32363e] text-[10px] text-slate-300 transition"
-          title="Increase Note Height"
+          title="鍵盤高さを拡大 (縦ズーム+)"
         >
-          Y+
+          縦+
         </button>
         <button
           onClick={() => setZoomY((z: number) => Math.max(8, z - 2))}
           className="px-1.5 py-0.5 rounded bg-[#272a30] hover:bg-[#32363e] text-[10px] text-slate-300 transition"
-          title="Decrease Note Height"
+          title="鍵盤高さを縮小 (縦ズーム-)"
         >
-          Y-
+          縦-
         </button>
       </div>
     </div>

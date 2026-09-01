@@ -3,7 +3,7 @@ import { useApp } from '../state/AppContext';
 import { ChordCandidate, ChordSegment, ChordType } from '../types/analysis';
 import { PITCH_NAMES } from '../utils/constants';
 import { ALL_CHORD_TYPES, CHORD_DEFINITIONS } from '../music/chords';
-import { Edit3, Check, X, Lock, ShieldCheck, Sparkles, Filter } from 'lucide-react';
+import { Edit3, Check, X, Lock, ShieldCheck } from 'lucide-react';
 
 export const HarmonyTimeline: React.FC = () => {
   const {
@@ -128,7 +128,7 @@ export const HarmonyTimeline: React.FC = () => {
       {/* Fixed Left Header */}
       <div className="w-56 h-full bg-[#18191c] border-r border-[#2e3238] flex items-center justify-between px-3 shrink-0 z-10 shadow-md">
         <div className="flex items-center gap-1.5">
-          <span className="text-xs font-semibold text-slate-300">Harmony Progression</span>
+          <span className="text-xs font-semibold text-slate-300">コード進行</span>
         </div>
       </div>
 
@@ -173,7 +173,7 @@ export const HarmonyTimeline: React.FC = () => {
                     ? 'bg-blue-950/50 border-blue-500 text-blue-200 shadow-md'
                     : 'bg-[#272a30] border-[#3c404a] text-slate-200 hover:bg-[#32363e] hover:border-slate-400'
                 }`}
-                title={`Bar ${block.barStart}.${block.beatStart} ~ ${block.barEnd}.${block.beatEnd}: ${block.displayName} (${block.confidence}% confidence | ${block.sourceType}). Click to edit.`}
+                title={`第${block.barStart}小節 ${block.beatStart}拍 ~ 第${block.barEnd}小節 ${block.beatEnd}拍: ${block.displayName} (${block.confidence}% 確信度 | ${block.sourceType})。クリックして手動変更`}
               >
                 <div className="flex items-center justify-between gap-1 overflow-hidden">
                   <span className="font-bold text-xs truncate tracking-tight">{block.displayName}</span>
@@ -183,7 +183,7 @@ export const HarmonyTimeline: React.FC = () => {
                     {block.sourceType === 'MANUAL' ? (
                       <span className="text-[9px] text-purple-300 font-mono px-1 rounded bg-purple-900/60 border border-purple-500/50 flex items-center gap-0.5">
                         <Lock className="w-2 h-2" />
-                        <span>MANUAL</span>
+                        <span>手動指定</span>
                       </span>
                     ) : block.sourceType === 'GUIDE' ? (
                       <span className="text-[9px] text-teal-300 font-mono px-1 rounded bg-teal-900/60 border border-teal-500/50 flex items-center gap-0.5">
@@ -204,8 +204,8 @@ export const HarmonyTimeline: React.FC = () => {
 
                 <span className="text-[9px] text-slate-400 truncate">
                   {block.barStart === block.barEnd
-                    ? `Bar ${block.barStart}`
-                    : `Bars ${block.barStart}–${block.barEnd}`}
+                    ? `第${block.barStart}小節`
+                    : `第${block.barStart}〜${block.barEnd}小節`}
                 </span>
               </div>
             );
@@ -221,9 +221,9 @@ export const HarmonyTimeline: React.FC = () => {
               <div>
                 <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
                   <Edit3 className="w-4 h-4 text-purple-400" />
-                  <span>Edit Chord (Bar {editingSegment.barIndex} Beat {editingSegment.beatIndex})</span>
+                  <span>コードの手動指定 (第{editingSegment.barIndex}小節 {editingSegment.beatIndex}拍)</span>
                 </h3>
-                <p className="text-xs text-slate-400 mt-0.5">Estimated: <strong className="text-slate-200">{editingSegment.displayName}</strong> ({editingSegment.confidence}% | {editingSegment.sourceType})</p>
+                <p className="text-xs text-slate-400 mt-0.5">現在推定: <strong className="text-slate-200">{editingSegment.displayName}</strong> ({editingSegment.confidence}% | {editingSegment.sourceType})</p>
               </div>
               <button
                 onClick={() => setEditingSegment(null)}
@@ -236,7 +236,7 @@ export const HarmonyTimeline: React.FC = () => {
             {/* Candidates Picker */}
             <div className="mt-4">
               <label className="text-xs font-semibold text-slate-300 block mb-2">
-                Top Chord Candidates (Click to apply):
+                候補から選択（クリックして適用）:
               </label>
               <div className="grid grid-cols-1 gap-1.5 max-h-40 overflow-y-auto pr-1">
                 {editingSegment.candidates.map((cand, idx) => (
@@ -254,7 +254,7 @@ export const HarmonyTimeline: React.FC = () => {
                       <span className="text-[11px] text-slate-400 font-sans">({cand.typeName})</span>
                     </div>
                     <span className="text-[10px] font-mono text-slate-400 bg-black/30 px-1.5 py-0.5 rounded">
-                      {cand.confidence}%
+                      確信度 {cand.confidence}%
                     </span>
                   </button>
                 ))}
@@ -264,12 +264,12 @@ export const HarmonyTimeline: React.FC = () => {
             {/* Custom Chord Override */}
             <div className="mt-5 pt-4 border-t border-[#2e3238]">
               <label className="text-xs font-semibold text-slate-300 block mb-2">
-                Custom Chord Specification:
+                任意のコードを手動指定:
               </label>
               
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <span className="text-[11px] text-slate-400 block mb-1">Root</span>
+                  <span className="text-[11px] text-slate-400 block mb-1">ルート音</span>
                   <select
                     value={customRoot}
                     onChange={(e) => setCustomRoot(parseInt(e.target.value, 10))}
@@ -282,7 +282,7 @@ export const HarmonyTimeline: React.FC = () => {
                 </div>
 
                 <div>
-                  <span className="text-[11px] text-slate-400 block mb-1">Type</span>
+                  <span className="text-[11px] text-slate-400 block mb-1">コード種別</span>
                   <select
                     value={customType}
                     onChange={(e) => setCustomType(e.target.value as ChordType)}
@@ -295,7 +295,7 @@ export const HarmonyTimeline: React.FC = () => {
                 </div>
 
                 <div>
-                  <span className="text-[11px] text-slate-400 block mb-1">Bass</span>
+                  <span className="text-[11px] text-slate-400 block mb-1">ベース音</span>
                   <select
                     value={customBass}
                     onChange={(e) => setCustomBass(parseInt(e.target.value, 10))}
@@ -313,14 +313,14 @@ export const HarmonyTimeline: React.FC = () => {
                   onClick={() => setEditingSegment(null)}
                   className="px-3 py-1.5 rounded-md bg-[#272a30] hover:bg-[#32363e] text-xs font-medium text-slate-300 transition"
                 >
-                  Cancel
+                  キャンセル
                 </button>
                 <button
                   onClick={handleApplyCustom}
                   className="px-4 py-1.5 rounded-md bg-purple-600 hover:bg-purple-500 text-xs font-semibold text-white flex items-center gap-1.5 shadow-md shadow-purple-950/40 transition"
                 >
                   <Check className="w-3.5 h-3.5" />
-                  <span>Apply Manual Override</span>
+                  <span>手動指定を適用</span>
                 </button>
               </div>
             </div>

@@ -44,17 +44,17 @@ export function formatDurationTicks(ticks: number, ppq: number): string {
   const quarterTicks = ppq;
   const ratio = ticks / quarterTicks;
   
-  if (Math.abs(ratio - 4) < 0.05) return 'Whole Note';
-  if (Math.abs(ratio - 2) < 0.05) return 'Half Note';
-  if (Math.abs(ratio - 1) < 0.05) return 'Quarter Note';
-  if (Math.abs(ratio - 0.5) < 0.05) return '8th Note';
-  if (Math.abs(ratio - 0.25) < 0.05) return '16th Note';
-  if (Math.abs(ratio - 0.125) < 0.05) return '32nd Note';
-  if (Math.abs(ratio - 1.5) < 0.05) return 'Dotted Quarter Note';
-  if (Math.abs(ratio - 0.75) < 0.05) return 'Dotted 8th Note';
-  if (Math.abs(ratio - 0.375) < 0.05) return 'Dotted 16th Note';
-  if (Math.abs(ratio - 0.333) < 0.05) return 'Triplet 8th Note';
-  if (Math.abs(ratio - 0.666) < 0.05) return 'Triplet Quarter Note';
+  if (Math.abs(ratio - 4) < 0.05) return '全音符 (4拍)';
+  if (Math.abs(ratio - 2) < 0.05) return '2分音符 (2拍)';
+  if (Math.abs(ratio - 1) < 0.05) return '4分音符 (1拍)';
+  if (Math.abs(ratio - 0.5) < 0.05) return '8分音符 (0.5拍)';
+  if (Math.abs(ratio - 0.25) < 0.05) return '16分音符 (0.25拍)';
+  if (Math.abs(ratio - 0.125) < 0.05) return '32分音符';
+  if (Math.abs(ratio - 1.5) < 0.05) return '付点4分音符 (1.5拍)';
+  if (Math.abs(ratio - 0.75) < 0.05) return '付点8分音符 (0.75拍)';
+  if (Math.abs(ratio - 0.375) < 0.05) return '付点16分音符';
+  if (Math.abs(ratio - 0.333) < 0.05) return '3連8分音符';
+  if (Math.abs(ratio - 0.666) < 0.05) return '3連4分音符';
   
-  return `${ticks} ticks (${ratio.toFixed(2)} beats)`;
+  return `${ticks} ticks (${ratio.toFixed(2)} 拍)`;
 }

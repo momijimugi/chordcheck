@@ -76,7 +76,7 @@ export function generateNoteSuggestions(
 
     // Sign formatted
     const diffSign = diffSemitones > 0 ? `+${diffSemitones}` : `${diffSemitones}`;
-    const diffDesc = diffSemitones === 0 ? 'Same pitch' : `${diffSign} semitone${absDiff > 1 ? 's' : ''}`;
+    const diffDesc = diffSemitones === 0 ? '現在の音高' : `${diffSign} 半音`;
     const reason = `${relation.intervalName} (${diffDesc})`;
 
     candidatePitches.set(testPitch, {

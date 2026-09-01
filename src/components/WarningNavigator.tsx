@@ -25,19 +25,19 @@ export const WarningNavigator: React.FC = () => {
   const filterOptions: { id: FilterType; label: string; count: number; activeClass: string }[] = [
     {
       id: 'ALL',
-      label: 'All Notes',
+      label: 'すべてのノート',
       count: statusCounts.TOTAL,
       activeClass: 'bg-slate-700 text-white border-slate-500',
     },
     {
       id: 'WARNING_ONLY',
-      label: 'WARNING ONLY',
+      label: 'WARNINGのみ',
       count: statusCounts.WARNING,
       activeClass: 'bg-rose-500/25 text-rose-300 border-rose-500/80 shadow-sm shadow-rose-950/40 font-bold',
     },
     {
       id: 'CHECK',
-      label: 'CHECK',
+      label: 'CHECK以上',
       count: statusCounts.CHECK,
       activeClass: 'bg-amber-500/25 text-amber-300 border-amber-500/80 shadow-sm shadow-amber-950/40',
     },
@@ -63,7 +63,7 @@ export const WarningNavigator: React.FC = () => {
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium mr-1 shrink-0">
           <Filter className="w-3.5 h-3.5" />
-          <span>Filter:</span>
+          <span>絞り込み:</span>
         </div>
 
         <div className="flex items-center gap-1 bg-[#141518] p-0.5 rounded-lg border border-[#2e3238]">
@@ -104,10 +104,10 @@ export const WarningNavigator: React.FC = () => {
                 ? 'bg-rose-950/60 text-rose-300 border-rose-500 font-semibold'
                 : 'hover:bg-[#272a30] text-slate-400 hover:text-slate-200 border-transparent'
             }`}
-            title="Highlight/filter only chord regions with confidence below 60%"
+            title="コード推定の確信度が60%未満の区間のみを抽出"
           >
             <ShieldAlert className="w-3 h-3 text-rose-400" />
-            <span>Low Conf (&lt;60%)</span>
+            <span>低確信度 (&lt;60%)</span>
           </button>
         </div>
       </div>
@@ -115,9 +115,9 @@ export const WarningNavigator: React.FC = () => {
       {/* Warning Stepper Navigator */}
       <div className="flex items-center gap-2 shrink-0">
         <div className="text-xs text-slate-400 flex items-center gap-2">
-          <span>Suspicious Notes:</span>
+          <span>要確認ノート:</span>
           <span className="font-semibold text-rose-400 bg-rose-950/40 border border-rose-500/30 px-2 py-0.5 rounded-md text-xs font-mono">
-            {totalFlagged} flagged
+            {totalFlagged} 件検出
           </span>
         </div>
 
@@ -126,19 +126,19 @@ export const WarningNavigator: React.FC = () => {
             onClick={() => navigateWarning('prev')}
             disabled={totalFlagged === 0}
             className="px-2.5 py-1 text-xs text-slate-300 hover:bg-[#32363e] disabled:opacity-40 disabled:hover:bg-transparent flex items-center gap-1 transition"
-            title="Navigate to Previous Warning / Check Note (Shortcut: [ or J)"
+            title="前の警告/要確認ノートへジャンプ (ショートカット: [ または J)"
           >
             <ChevronLeft className="w-3.5 h-3.5" />
-            <span>Prev [</span>
+            <span>前へ [</span>
           </button>
           <div className="w-[1px] h-4 bg-[#3c404a]" />
           <button
             onClick={() => navigateWarning('next')}
             disabled={totalFlagged === 0}
             className="px-2.5 py-1 text-xs text-slate-300 hover:bg-[#32363e] disabled:opacity-40 disabled:hover:bg-transparent flex items-center gap-1 transition"
-            title="Navigate to Next Warning / Check Note (Shortcut: ] or K)"
+            title="次の警告/要確認ノートへジャンプ (ショートカット: ] または K)"
           >
-            <span>Next ]</span>
+            <span>次へ ]</span>
             <ChevronRight className="w-3.5 h-3.5" />
           </button>
         </div>

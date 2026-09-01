@@ -47,10 +47,10 @@ export class ErrorBoundary extends Component<Props, State> {
             </div>
 
             <h2 className="text-xl font-bold text-white mb-2">
-              Harmony Inspector encountered an error
+              画面表示中に予期せぬエラーが発生しました
             </h2>
             <p className="text-sm text-slate-400 mb-6">
-              An unexpected error occurred in the user interface. You can reload the application or try resetting the session.
+              UIのレンダリング中に問題が発生しました。アプリケーションを再読み込みするか、セッションのリセットをお試しください。
             </p>
 
             <div className="flex items-center justify-center gap-3 mb-6">
@@ -59,13 +59,13 @@ export class ErrorBoundary extends Component<Props, State> {
                 className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold flex items-center gap-2 shadow-md shadow-rose-950/50 transition"
               >
                 <RotateCcw className="w-4 h-4" />
-                <span>Reload Application</span>
+                <span>アプリを再読み込み</span>
               </button>
               <button
                 onClick={this.handleResetState}
                 className="px-4 py-2 rounded-lg bg-[#272a30] hover:bg-[#32363e] text-slate-300 text-xs font-medium border border-[#3c404a] transition"
               >
-                Dismiss & Retry
+                閉じて再試行
               </button>
             </div>
 

@@ -66,19 +66,19 @@ export function getMeterPosition(
   
   if (isDownbeat) {
     metricWeight = 1.3;
-    posText = `Bar ${bar} Beat ${beat} (Downbeat)`;
+    posText = `第${bar}小節 第${beat}拍 (小節頭拍)`;
   } else if (isStrongBeat) {
     metricWeight = 1.15;
-    posText = `Bar ${bar} Beat ${beat} (Strong Beat)`;
+    posText = `第${bar}小節 第${beat}拍 (強拍)`;
   } else if (isBeatHead) {
     metricWeight = 1.0;
-    posText = `Bar ${bar} Beat ${beat}`;
+    posText = `第${bar}小節 第${beat}拍 (拍頭)`;
   } else if (isOffbeat) {
     metricWeight = 0.8;
-    posText = `Bar ${bar} Beat ${beat} & (Offbeat)`;
+    posText = `第${bar}小節 第${beat}拍 裏 (8分裏拍)`;
   } else {
     metricWeight = 0.5;
-    posText = `Bar ${bar} Beat ${(beat + fractionInBeat).toFixed(2)} (Off-grid)`;
+    posText = `第${bar}小節 第${(beat + fractionInBeat).toFixed(2)}拍 (弱拍/グリッド外)`;
   }
   
   return {

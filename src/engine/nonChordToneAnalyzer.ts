@@ -1,6 +1,6 @@
 import { NonChordToneType, ChordSegment } from '../types/analysis';
 import { NoteData } from '../types/midi';
-import { evaluateNoteRelation, CHORD_DEFINITIONS } from '../music/chords';
+import { evaluateNoteRelation } from '../music/chords';
 
 export interface NonChordToneResult {
   type: NonChordToneType;
@@ -24,8 +24,8 @@ export function analyzeNonChordTone(
     return {
       type: 'none',
       isResolved: true,
-      resolutionDescription: 'Chord Tone',
-      reasons: [`Chord tone (${relation.intervalName})`],
+      resolutionDescription: 'コードトーン',
+      reasons: [`コードトーン (${relation.intervalName})`],
     };
   }
 
@@ -35,8 +35,8 @@ export function analyzeNonChordTone(
     return {
       type: 'none',
       isResolved: false,
-      resolutionDescription: 'Polyphonic track - linear resolution suppressed',
-      reasons: ['Polyphonic voice texture'],
+      resolutionDescription: 'ポリフォニック和音トラック（声部線形解決を抑制）',
+      reasons: ['ポリフォニック和音テクスチャ'],
     };
   }
 
@@ -57,13 +57,13 @@ export function analyzeNonChordTone(
     const diffNext = nextNote.pitch - note.pitch;
     
     if (prevNote.pitch === nextNote.pitch && (Math.abs(diffPrev) === 1 || Math.abs(diffPrev) === 2)) {
-      const neighborLabel = Math.abs(diffPrev) === 1 ? 'Chromatic Neighbor Tone' : 'Neighbor Tone';
+      const neighborLabel = Math.abs(diffPrev) === 1 ? '半音階刺繍音 (Chromatic Neighbor Tone)' : '刺繍音 (Neighbor Tone)';
       reasons.push(`${neighborLabel} (${prevNote.name} → ${note.name} → ${nextNote.name})`);
       return {
         type: 'neighbor',
         label: neighborLabel,
         isResolved: true,
-        resolutionDescription: `Stepwise resolution to ${nextNote.name}`,
+        resolutionDescription: `次音 ${nextNote.name} へ順次進行して解決`,
         reasons,
       };
     }
@@ -76,13 +76,13 @@ export function analyzeNonChordTone(
     if (isStepwisePrev && isStepwiseNext && isSameDirection) {
       const isChromatic = Math.abs(diffPrev) === 1 && Math.abs(diffNext) === 1;
       const passingType: NonChordToneType = isChromatic ? 'chromatic_passing' : 'passing';
-      const label = isChromatic ? 'Chromatic Passing Tone' : 'Passing Tone';
+      const label = isChromatic ? '半音階経過音 (Chromatic Passing Tone)' : '経過音 (Passing Tone)';
       reasons.push(`${label} (${prevNote.name} → ${note.name} → ${nextNote.name})`);
       return {
         type: passingType,
         label,
         isResolved: true,
-        resolutionDescription: `Stepwise passing motion to ${nextNote.name}`,
+        resolutionDescription: `次音 ${nextNote.name} へ順次進行して解決`,
         reasons,
       };
     }
@@ -95,12 +95,12 @@ export function analyzeNonChordTone(
     
     const nextRelation = evaluateNoteRelation(note.pitch, nextSegment.root, nextSegment.type, nextSegment.bass);
     if (isCloseToChordChange && nextRelation.isChordTone) {
-      reasons.push(`Anticipation (anticipates ${nextRelation.intervalName} of upcoming ${nextSegment.displayName})`);
+      reasons.push(`先行動音 (次コード ${nextSegment.displayName} の ${nextRelation.intervalName} を先行発音)`);
       return {
         type: 'anticipation',
-        label: 'Anticipation',
+        label: '先行動音 (Anticipation)',
         isResolved: true,
-        resolutionDescription: `Anticipates ${nextSegment.displayName}`,
+        resolutionDescription: `次コード ${nextSegment.displayName} を先取り`,
         reasons,
       };
     }
@@ -113,12 +113,12 @@ export function analyzeNonChordTone(
     const nextRelation = evaluateNoteRelation(nextNote.pitch, currentSegment.root, currentSegment.type, currentSegment.bass);
 
     if (prevRelation.isChordTone && (stepDown === 1 || stepDown === 2) && nextRelation.isChordTone) {
-      reasons.push(`Suspension (prepared in ${prevSegment.displayName}, resolves down to ${nextNote.name})`);
+      reasons.push(`掛留音 (前コード ${prevSegment.displayName} から保持され、${nextNote.name} へ下行解決)`);
       return {
         type: 'suspension',
-        label: 'Suspension',
+        label: '掛留音 (Suspension)',
         isResolved: true,
-        resolutionDescription: `Resolves down stepwise to ${nextNote.name}`,
+        resolutionDescription: `${nextNote.name} へ下行順次解決`,
         reasons,
       };
     }
@@ -131,8 +131,8 @@ export function analyzeNonChordTone(
       return {
         type: 'none',
         isResolved: true,
-        resolutionDescription: `Stepwise resolution to ${nextNote.name} (${nextRelation.intervalName})`,
-        reasons: [`Resolves to ${nextNote.name}`],
+        resolutionDescription: `次音 ${nextNote.name} (${nextRelation.intervalName}) へ順次進行`,
+        reasons: [`${nextNote.name} へ解決`],
       };
     }
   }
@@ -140,7 +140,7 @@ export function analyzeNonChordTone(
   return {
     type: 'none',
     isResolved: false,
-    resolutionDescription: 'No stepwise resolution detected',
-    reasons: ['No stepwise resolution detected'],
+    resolutionDescription: '順次進行による解決が見当たりません（跳躍進行）',
+    reasons: ['順次解決が検出されません'],
   };
 }
