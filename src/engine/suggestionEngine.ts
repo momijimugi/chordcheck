@@ -3,22 +3,22 @@ import { NoteData } from '../types/midi';
 import { evaluateNoteRelation, CHORD_DEFINITIONS } from '../music/chords';
 import { pitchToName, getPitchClass } from '../music/pitch';
 
+/**
+ * Fast O(1) Note Pitch Suggestion Generator.
+ * prevNote and nextNote are supplied from pre-indexed AnalysisContext to avoid per-note array sorting.
+ */
 export function generateNoteSuggestions(
   note: NoteData,
-  trackNotes: NoteData[],
-  currentSegment: ChordSegment
+  currentSegment: ChordSegment,
+  prevNote?: NoteData,
+  nextNote?: NoteData
 ): SuggestedPitch[] {
-  const sortedNotes = [...trackNotes].sort((a, b) => a.startTicks - b.startTicks);
-  const currentIndex = sortedNotes.findIndex(n => n.id === note.id);
-  const prevNote = currentIndex > 0 ? sortedNotes[currentIndex - 1] : undefined;
-  const nextNote = currentIndex >= 0 && currentIndex < sortedNotes.length - 1 ? sortedNotes[currentIndex + 1] : undefined;
-
   const currentPitch = note.pitch;
   const def = CHORD_DEFINITIONS[currentSegment.type] || CHORD_DEFINITIONS.maj;
 
   // Gather candidate pitch classes (chord tones + acceptable natural tensions)
   const targetPitchClasses: { pc: number; weight: number; label: string }[] = [];
-  
+
   for (const interval of def.intervals) {
     const pc = (currentSegment.root + interval) % 12;
     let label = 'Chord Tone';
@@ -27,7 +27,7 @@ export function generateNoteSuggestions(
     else if (interval === 4 || interval === 3) { label = '3rd'; weight = 115; }
     else if (interval === 7) { label = '5th'; weight = 105; }
     else if (interval === 11 || interval === 10 || interval === 9) { label = '7th/6th'; weight = 110; }
-    
+
     targetPitchClasses.push({ pc, weight, label });
   }
 
@@ -58,7 +58,7 @@ export function generateNoteSuggestions(
     // Pitch proximity penalty (prefer smaller changes: 0..2 semitones)
     score -= (absDiff * 8);
 
-    // Voice leading smoothness from prev note
+    // Voice leading smoothness from prev note (O(1))
     if (prevNote) {
       const prevDiff = Math.abs(testPitch - prevNote.pitch);
       if (prevDiff <= 2) score += 15; // Stepwise motion bonus
@@ -66,7 +66,7 @@ export function generateNoteSuggestions(
       else if (prevDiff > 7) score -= 10; // Large jump penalty
     }
 
-    // Voice leading smoothness to next note
+    // Voice leading smoothness to next note (O(1))
     if (nextNote) {
       const nextDiff = Math.abs(testPitch - nextNote.pitch);
       if (nextDiff <= 2) score += 15;

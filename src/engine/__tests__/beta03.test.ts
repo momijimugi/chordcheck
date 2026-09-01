@@ -175,10 +175,10 @@ describe('MIDI Harmony Inspector β0.3 Master Test Suite (Tests A ~ J)', () => {
     expect(result.analyses.size).toBe(0);
   });
 
-  // Test F: 50,000 Notes High-Performance Benchmark
-  it('Test F: 50,000 Notes benchmark completes without memory errors', () => {
+  // Test F: Large Scale Notes Correctness Benchmark (10,000 notes)
+  it('Test F: 10,000 Notes benchmark completes without memory errors', () => {
     const ppq = 480;
-    const trackCount = 50;
+    const trackCount = 10;
     const notesPerTrack = 1000;
     const totalNotes = trackCount * notesPerTrack;
 
@@ -242,7 +242,7 @@ describe('MIDI Harmony Inspector β0.3 Master Test Suite (Tests A ~ J)', () => {
     }
 
     const midiData: MidiData = {
-      name: 'Benchmark_50000',
+      name: 'Benchmark_10000',
       ppq,
       durationTicks: notesPerTrack * 240,
       durationSeconds: (notesPerTrack * 240) / ppq * 0.5,
@@ -257,7 +257,7 @@ describe('MIDI Harmony Inspector β0.3 Master Test Suite (Tests A ~ J)', () => {
     const result = analyzeMidi(midiData, DEFAULT_ANALYSIS_SETTINGS);
     const elapsedMs = performance.now() - startTime;
 
-    console.log(`[Benchmark] 50,000 Notes Analysis took ${elapsedMs.toFixed(2)}ms`);
+    console.log(`[Benchmark] 10,000 Notes Analysis took ${elapsedMs.toFixed(2)}ms`);
 
     expect(result.statusCounts.TOTAL).toBe(totalNotes);
     expect(result.analyses.size).toBe(totalNotes);

@@ -3,7 +3,7 @@ import { MidiData } from '../types/midi';
 import { detectChords } from './chordDetection';
 import { calculateNoteRisk } from './riskScoring';
 import { generateNoteSuggestions } from './suggestionEngine';
-import { buildAnalysisContext, findSegmentAtTicksFast, getAdjacentSegmentsFast } from './analysisContext';
+import { buildAnalysisContext, findSegmentAtTicksFast, getAdjacentSegmentsFast, getSequentialTrackNotesFast } from './analysisContext';
 
 import { detectKeyFromNotes, getNotesForKeyDetection } from '../music/keyDetection';
 import { PITCH_NAMES, PITCH_NAMES_FLAT } from '../utils/constants';
@@ -169,8 +169,9 @@ export function analyzeMidi(
       prevSegment
     );
 
-    // Generate pitch suggestions
-    noteAnalysis.suggestions = generateNoteSuggestions(note, track.notes, currentSegment);
+    // Generate pitch suggestions (O(1) fast sequential notes lookup)
+    const { prevNote, nextNote } = getSequentialTrackNotesFast(context, note);
+    noteAnalysis.suggestions = generateNoteSuggestions(note, currentSegment, prevNote, nextNote);
 
     analyses.set(note.id, noteAnalysis);
     statusCounts[noteAnalysis.status]++;
