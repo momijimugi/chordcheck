@@ -37,7 +37,7 @@ export const SettingsModal: React.FC = () => {
         <div className="flex items-center justify-between pb-4 border-b border-[#2e3238]">
           <div className="flex items-center gap-2">
             <Settings className="w-5 h-5 text-emerald-400" />
-            <h3 className="font-bold text-base text-slate-100">設定・MIDI診断 (β0.4.1)</h3>
+            <h3 className="font-bold text-base text-slate-100">設定・MIDI診断 (β0.4.1.1)</h3>
           </div>
           <button
             onClick={() => setSettingsOpen(false)}
@@ -404,7 +404,7 @@ export const SettingsModal: React.FC = () => {
                     <span>元SMFバイト保持: <strong className={diag.hasOriginalBytes ? 'text-emerald-400' : 'text-rose-400'}>{diag.hasOriginalBytes ? 'あり (100%)' : 'なし'}</strong></span>
                   </div>
                   <div className="col-span-2 pt-1 border-t border-[#2e3238] flex justify-between text-slate-500 text-[10px]">
-                    <span>アプリVersion: <strong className="text-slate-300">β0.4.1 Production</strong></span>
+                    <span>アプリVersion: <strong className="text-slate-300">β0.4.1.1 Production</strong></span>
                     <span>公開環境: <strong className="text-slate-300">GitHub Pages (/chordcheck/)</strong></span>
                   </div>
                 </div>

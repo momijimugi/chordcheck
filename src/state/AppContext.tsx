@@ -13,6 +13,7 @@ import { getPitchRangeForPreset } from '../engine/keyswitchDetection';
 import { detectKeyFromNotes, getNotesForKeyDetection } from '../music/keyDetection';
 import { getTempoAtTicks } from '../music/meter';
 import { harmonyWorkerBridge } from '../workers/harmonyWorkerBridge';
+import { matchesNoteFilter } from '../utils/noteFilter';
 
 interface AppContextValue extends AppState {
   loadMidiFile: (file: File) => Promise<void>;
@@ -710,7 +711,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setScrollTop(Math.max(0, top));
   }, []);
 
-  // Warning Navigator (Excludes Reviewed Notes, Phase L)
+  // Warning Navigator (Excludes Reviewed Notes, Phase L / Phase G)
   const navigateWarning = useCallback((direction: 'prev' | 'next') => {
     if (!workingMidi || analyses.size === 0) return;
 
@@ -718,9 +719,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (reviewedNoteIds.has(n.id)) return false; // Exclude reviewed!
       const a = analyses.get(n.id);
       if (!a) return false;
-      if (activeFilter === 'WARNING_ONLY') return a.status === 'WARNING';
-      if (activeFilter === 'CHECK') return a.status === 'CHECK';
-      return a.status === 'WARNING' || a.status === 'CHECK';
+      return matchesNoteFilter(a.status, activeFilter);
     });
 
     if (flaggedNotes.length === 0) return;

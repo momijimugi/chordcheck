@@ -6,6 +6,7 @@ import { formatPitchName } from '../music/keyDetection';
 import { buildMeterMap } from '../music/meter';
 import { MidiData, NoteData } from '../types/midi';
 import { calculateFitZoom, LEFT_GUTTER_WIDTH, tickToX, xToTick } from '../utils/timelineGeometry';
+import { matchesNoteFilter } from '../utils/noteFilter';
 import { ZoomIn, ZoomOut, Music, CheckCheck } from 'lucide-react';
 
 const MIN_PITCH = 12;  // C0
@@ -234,25 +235,13 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
     return notes;
   }, [noteTemporalBuckets, visibleStartTicks, visibleEndTicks, visibleMinPitch, visibleMaxPitch, timeBucketSize]);
 
-  // Filter evaluation helper
+  // Filter evaluation helper (Phase G / Phase H)
   const isNoteMatchingFilter = useCallback((analysis: any, noteId: string) => {
     if (!analysis) return true;
     if (reviewedNoteIds.has(noteId) && activeFilter !== 'ALL') {
       return false; // Hide reviewed notes in specific filter modes
     }
-    switch (activeFilter) {
-      case 'WARNING_ONLY':
-        return analysis.status === 'WARNING';
-      case 'CHECK':
-        return analysis.status === 'CHECK' || analysis.status === 'WARNING';
-      case 'INFO':
-        return analysis.status === 'INFO';
-      case 'SAFE':
-        return analysis.status === 'SAFE';
-      case 'ALL':
-      default:
-        return true;
-    }
+    return matchesNoteFilter(analysis.status, activeFilter);
   }, [activeFilter, reviewedNoteIds]);
 
   const handleGridClick = (e: React.MouseEvent<HTMLDivElement>) => {

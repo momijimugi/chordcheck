@@ -59,7 +59,7 @@ export const WarningNavigator: React.FC = () => {
     {
       id: 'CHECK',
       label: 'CHECK以上',
-      count: statusCounts.CHECK,
+      count: statusCounts.CHECK + statusCounts.WARNING,
       activeClass: 'bg-amber-500/25 text-amber-300 border-amber-500/80 shadow-sm shadow-amber-950/40',
     },
     {

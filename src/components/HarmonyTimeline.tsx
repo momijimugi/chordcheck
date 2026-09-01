@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../state/AppContext';
-import { ChordCandidate, ChordSegment, ChordType } from '../types/analysis';
+import { ChordCandidate, ChordSegment, ChordType, ChordAnalysisSpan } from '../types/analysis';
 import { PITCH_NAMES } from '../utils/constants';
 import { ALL_CHORD_TYPES, CHORD_DEFINITIONS } from '../music/chords';
 import { LEFT_GUTTER_WIDTH, calculateChordBlockGeometry, xToTick, tickToX } from '../utils/timelineGeometry';
@@ -20,6 +20,8 @@ export const HarmonyTimeline: React.FC = () => {
     playheadTicks,
     setPlayheadTicks,
     isPlaying,
+    analysisSettings,
+    updateAnalysisSettings,
   } = useApp();
 
   const [editingSegment, setEditingSegment] = useState<ChordSegment | null>(null);
@@ -144,8 +146,8 @@ export const HarmonyTimeline: React.FC = () => {
         </div>
         <div className="flex items-center gap-1">
           <select
-            value={useApp().analysisSettings.chordAnalysisSpan || 'auto'}
-            onChange={(e) => useApp().updateAnalysisSettings({ chordAnalysisSpan: e.target.value as any })}
+            value={analysisSettings.chordAnalysisSpan || 'auto'}
+            onChange={(e) => updateAnalysisSettings({ chordAnalysisSpan: e.target.value as ChordAnalysisSpan })}
             className="bg-[#202226] border border-[#3c404a] rounded px-1.5 py-0.5 text-[10px] text-slate-200 focus:outline-none focus:border-blue-500 cursor-pointer font-medium"
             title="コード解析単位（テンションや経過音による過剰な変化を抑えたい場合は2小節などを指定）"
           >

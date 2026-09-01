@@ -139,9 +139,9 @@ export const Inspector: React.FC = () => {
           </div>
         </div>
 
-        {/* Note Review Workflow Button (Phase K / Section 31-33) */}
-        <div className="mt-3 pt-3 border-t border-[#2e3238]">
-          {isReviewed ? (
+        {/* Note Review Workflow Button (Phase F / Section 16-19) */}
+        {isReviewed ? (
+          <div className="mt-3 pt-3 border-t border-[#2e3238]">
             <button
               onClick={() => toggleNoteReviewed(analysis.noteId)}
               className="w-full py-1.5 px-2.5 rounded-lg bg-[#272a30] hover:bg-[#32363e] text-slate-300 text-xs font-semibold flex items-center justify-center gap-1.5 border border-[#3c404a] transition"
@@ -150,7 +150,9 @@ export const Inspector: React.FC = () => {
               <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
               <span>除外を解除（要確認に戻す）</span>
             </button>
-          ) : (
+          </div>
+        ) : analysis.status !== 'SAFE' ? (
+          <div className="mt-3 pt-3 border-t border-[#2e3238]">
             <button
               onClick={() => toggleNoteReviewed(analysis.noteId)}
               className="w-full py-1.5 px-2.5 rounded-lg bg-teal-950/40 hover:bg-teal-900/50 text-teal-200 text-xs font-semibold flex items-center justify-center gap-1.5 border border-teal-500/40 transition shadow-sm"
@@ -159,8 +161,8 @@ export const Inspector: React.FC = () => {
               <CheckCheck className="w-3.5 h-3.5 text-teal-400" />
               <span>問題なしとして除外（確認済みにする）</span>
             </button>
-          )}
-        </div>
+          </div>
+        ) : null}
       </div>
 
       {/* Harmony Context Details */}

@@ -53,7 +53,7 @@ export const Header: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <span className="font-bold text-sm text-slate-100 tracking-wide">MIDI Harmony Inspector</span>
-            <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">β0.4.1版</span>
+            <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">β0.4.1.1版</span>
           </div>
           <p className="text-[11px] text-slate-400">MIDI和声スペルチェッカー＆リンター</p>
         </div>

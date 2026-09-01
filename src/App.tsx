@@ -14,7 +14,19 @@ import { DEMO_PRESETS } from './utils/demoMidi';
 import { UploadCloud, Music, Sparkles, ShieldCheck } from 'lucide-react';
 
 export const MainLayout: React.FC = () => {
-  const { workingMidi, loadMidiFile, loadDemo } = useApp();
+  const {
+    workingMidi,
+    loadMidiFile,
+    loadDemo,
+    isExportSafetyModalOpen,
+    setIsExportSafetyModalOpen,
+    performExport,
+    exportSafetyDiag,
+    isDrumConfirmModalOpen,
+    pendingDrumTracks,
+    confirmDrumTracks,
+    dismissDrumConfirm,
+  } = useApp();
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -98,7 +110,7 @@ export const MainLayout: React.FC = () => {
             </div>
 
             <h1 className="text-2xl font-black text-white mb-2 tracking-wide">
-              MIDI Harmony Inspector <span className="text-xs uppercase font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">β0.4.1</span>
+              MIDI Harmony Inspector <span className="text-xs uppercase font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">β0.4.1.1</span>
             </h1>
             <p className="text-sm text-slate-400 max-w-md mx-auto mb-8">
               複数トラックMIDIの和声スペルチェッカー＆リンター。コード進行を自動推定し、コード外音や衝突を検出。DAW用に安全に修正・書き出しできます。
@@ -161,18 +173,18 @@ export const MainLayout: React.FC = () => {
 
       {/* Export Safety Warning Modal (Phase D / β0.3.2) */}
       <ExportSafetyModal
-        isOpen={useApp().isExportSafetyModalOpen}
-        onClose={() => useApp().setIsExportSafetyModalOpen(false)}
-        onConfirm={useApp().performExport}
-        diagnostic={useApp().exportSafetyDiag}
+        isOpen={isExportSafetyModalOpen}
+        onClose={() => setIsExportSafetyModalOpen(false)}
+        onConfirm={performExport}
+        diagnostic={exportSafetyDiag}
       />
 
       {/* Drum Confirmation Modal (Phase C / β0.4) */}
       <DrumConfirmModal
-        isOpen={useApp().isDrumConfirmModalOpen}
-        drumTracks={useApp().pendingDrumTracks}
-        onConfirm={useApp().confirmDrumTracks}
-        onDismiss={useApp().dismissDrumConfirm}
+        isOpen={isDrumConfirmModalOpen}
+        drumTracks={pendingDrumTracks}
+        onConfirm={confirmDrumTracks}
+        onDismiss={dismissDrumConfirm}
       />
 
       {/* Drag & Drop Full-screen Overlay */}

@@ -218,7 +218,9 @@ class SimpleAudioSynth {
           node.gain.gain.setValueAtTime(0.0001, now);
           if (node.osc) node.osc.stop(now);
           if (node.noise) node.noise.stop(now);
-        } catch (e) {}
+        } catch {
+          // Ignore node already stopped error
+        }
       });
       this.activeNodes = [];
     }

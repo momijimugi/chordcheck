@@ -480,109 +480,113 @@ export function detectChords(
 
   const spanMode = settings.chordAnalysisSpan || 'auto';
 
-  // -------------------------------------------------------------
-  // Priority 2: Manual Span Mode (half_bar, one_bar, two_bars, four_bars)
-  // -------------------------------------------------------------
-  if (spanMode !== 'auto') {
-    const spanWindows = generateSpanWindows(meterMap, maxTicks, spanMode, ppq);
-    const spanSegments: ChordSegment[] = [];
-    let prevRoot: number | null = null;
-    let prevType: ChordType | null = null;
+  // Helper for analyzing an arbitrary non-manual slice
+  const analyzeSlice = (
+    startTicks: number,
+    endTicks: number,
+    curPrevRoot: number | null,
+    curPrevType: ChordType | null
+  ): { segment: ChordSegment; bestRoot: number; bestType: ChordType } => {
+    const winTicks = endTicks - startTicks;
+    const meter = getMeterPosition(startTicks, ppq, timeSignatures);
 
-    for (let i = 0; i < spanWindows.length; i++) {
-      const win = spanWindows[i];
-      const winTicks = win.endTicks - win.startTicks;
-      if (winTicks <= 0) continue;
+    if (winTicks <= 0) {
+      const root = curPrevRoot !== null ? curPrevRoot : 0;
+      const type = curPrevType !== null ? curPrevType : 'maj';
+      const rootName = pitchClassToName(root);
+      return {
+        segment: {
+          id: `seg_${startTicks}`,
+          startTicks,
+          endTicks,
+          startSeconds: (startTicks / ppq) * 0.5,
+          endSeconds: (endTicks / ppq) * 0.5,
+          barIndex: meter.bar,
+          beatIndex: meter.beat,
+          root,
+          rootName,
+          type,
+          typeName: CHORD_DEFINITIONS[type].name,
+          bass: root,
+          bassName: rootName,
+          displayName: formatChordName(root, type),
+          confidence: 0,
+          candidates: [],
+          manualOverride: false,
+          sourceType: 'AUTO',
+        },
+        bestRoot: root,
+        bestType: type,
+      };
+    }
 
-      // Check manual override (Phase G / Section 24)
-      const segKey = `${win.startTicks}_${win.endTicks}`;
-      const manualSeg = overrideMap.get(segKey) || existingSegments.find(
-        s => s.manualOverride &&
-             ((s.startTicks <= win.startTicks && s.endTicks >= win.endTicks) ||
-              (win.startTicks <= s.startTicks && win.endTicks >= s.endTicks) ||
-              Math.abs(s.startTicks - win.startTicks) <= 60)
-      );
+    const pitchProfile = new Array(12).fill(0);
+    let lowestBassPitch = 999;
+    let lowestBassPc = -1;
+    let totalWeight = 0;
 
-      if (manualSeg) {
-        spanSegments.push({
-          ...manualSeg,
-          startTicks: win.startTicks,
-          endTicks: win.endTicks,
-          barIndex: win.barIndex,
-          beatIndex: win.beatIndex,
-          sourceType: 'MANUAL',
-        });
-        prevRoot = manualSeg.root;
-        prevType = manualSeg.type;
-        continue;
-      }
+    const startBucket = Math.floor(startTicks / harmonicBucketSize);
+    const endBucket = Math.floor(endTicks / harmonicBucketSize);
+    const windowNotesSeen = new Set<string>();
 
-      const pitchProfile = new Array(12).fill(0);
-      let lowestBassPitch = 999;
-      let lowestBassPc = -1;
-      let totalWeight = 0;
+    for (let b = startBucket; b <= endBucket; b++) {
+      const bucketNotes = harmonicBuckets.get(b);
+      if (!bucketNotes) continue;
 
-      const startBucket = Math.floor(win.startTicks / harmonicBucketSize);
-      const endBucket = Math.floor(win.endTicks / harmonicBucketSize);
-      const windowNotesSeen = new Set<string>();
+      for (let k = 0; k < bucketNotes.length; k++) {
+        const note = bucketNotes[k];
+        if (windowNotesSeen.has(note.id)) continue;
+        windowNotesSeen.add(note.id);
 
-      for (let b = startBucket; b <= endBucket; b++) {
-        const bucketNotes = harmonicBuckets.get(b);
-        if (!bucketNotes) continue;
+        const overlapStart = Math.max(startTicks, note.startTicks);
+        const overlapEnd = Math.min(endTicks, note.endTicks);
+        if (overlapEnd <= overlapStart) continue;
 
-        for (let k = 0; k < bucketNotes.length; k++) {
-          const note = bucketNotes[k];
-          if (windowNotesSeen.has(note.id)) continue;
-          windowNotesSeen.add(note.id);
+        const track = trackMap.get(note.trackId);
+        const overlapTicks = overlapEnd - overlapStart;
+        const overlapRatio = overlapTicks / winTicks;
 
-          const overlapStart = Math.max(win.startTicks, note.startTicks);
-          const overlapEnd = Math.min(win.endTicks, note.endTicks);
-          if (overlapEnd <= overlapStart) continue;
+        let durWeight = getDurationWeight(note.durationTicks, ppq);
+        if (!settings.reduceShortNoteInfluence) durWeight = 1.0;
 
-          const track = trackMap.get(note.trackId);
-          const overlapTicks = overlapEnd - overlapStart;
-          const overlapRatio = overlapTicks / winTicks;
+        const roleWeight = getRoleWeight(track);
+        if (roleWeight <= 0) continue;
 
-          let durWeight = getDurationWeight(note.durationTicks, ppq);
-          if (!settings.reduceShortNoteInfluence) durWeight = 1.0;
+        const velWeight = 0.3 + 0.7 * Math.max(0, Math.min(1, note.velocity));
+        const noteMeter = getMeterPosition(note.startTicks, ppq, timeSignatures);
+        const noteWeight = durWeight * velWeight * noteMeter.metricWeight * roleWeight * overlapRatio;
 
-          const roleWeight = getRoleWeight(track);
-          if (roleWeight <= 0) continue;
+        pitchProfile[note.pitchClass] += noteWeight;
+        totalWeight += noteWeight;
 
-          const velWeight = 0.3 + 0.7 * Math.max(0, Math.min(1, note.velocity));
-          const noteMeter = getMeterPosition(note.startTicks, ppq, timeSignatures);
-          const noteWeight = durWeight * velWeight * noteMeter.metricWeight * roleWeight * overlapRatio;
-
-          pitchProfile[note.pitchClass] += noteWeight;
-          totalWeight += noteWeight;
-
-          const isBassTrack = track?.settings.role === 'bass' || track?.settings.detectedRole === 'bass';
-          if (isBassTrack) {
-            if (note.pitch < lowestBassPitch) {
-              lowestBassPitch = note.pitch;
-              lowestBassPc = note.pitchClass;
-            }
-          } else if (lowestBassPitch === 999 || note.pitch < lowestBassPitch) {
+        const isBassTrack = track?.settings.role === 'bass' || track?.settings.detectedRole === 'bass';
+        if (isBassTrack) {
+          if (note.pitch < lowestBassPitch) {
             lowestBassPitch = note.pitch;
             lowestBassPc = note.pitchClass;
           }
+        } else if (lowestBassPitch === 999 || note.pitch < lowestBassPitch) {
+          lowestBassPitch = note.pitch;
+          lowestBassPc = note.pitchClass;
         }
       }
+    }
 
-      if (totalWeight < 0.001) {
-        const fallbackRoot = prevRoot !== null ? prevRoot : 0;
-        const fallbackType = prevType !== null ? prevType : 'maj';
-        const rootName = pitchClassToName(fallbackRoot);
-        const displayName = formatChordName(fallbackRoot, fallbackType);
+    if (totalWeight < 0.001) {
+      const fallbackRoot = curPrevRoot !== null ? curPrevRoot : 0;
+      const fallbackType = curPrevType !== null ? curPrevType : 'maj';
+      const rootName = pitchClassToName(fallbackRoot);
+      const displayName = formatChordName(fallbackRoot, fallbackType);
 
-        spanSegments.push({
-          id: `seg_${win.startTicks}`,
-          startTicks: win.startTicks,
-          endTicks: win.endTicks,
-          startSeconds: win.startTicks / ppq * 0.5,
-          endSeconds: win.endTicks / ppq * 0.5,
-          barIndex: win.barIndex,
-          beatIndex: win.beatIndex,
+      return {
+        segment: {
+          id: `seg_${startTicks}`,
+          startTicks,
+          endTicks,
+          startSeconds: (startTicks / ppq) * 0.5,
+          endSeconds: (endTicks / ppq) * 0.5,
+          barIndex: meter.bar,
+          beatIndex: meter.beat,
           root: fallbackRoot,
           rootName,
           type: fallbackType,
@@ -594,21 +598,38 @@ export function detectChords(
           candidates: [],
           manualOverride: false,
           sourceType: 'AUTO',
-        });
-        continue;
+        },
+        bestRoot: fallbackRoot,
+        bestType: fallbackType,
+      };
+    }
+
+    const top5 = scoreChordCandidates(pitchProfile, lowestBassPc, curPrevRoot, curPrevType, keyContext);
+    let best = top5[0];
+
+    // Harmonic Smoothing
+    if (curPrevRoot !== null && curPrevType !== null && (best.root !== curPrevRoot || best.type !== curPrevType)) {
+      const prevCand = top5.find(c => c.root === curPrevRoot && c.type === curPrevType);
+      if (prevCand) {
+        const scoreDiff = best.score - prevCand.score;
+        const sameRoot = best.root === curPrevRoot;
+        const sameBass = best.bass === prevCand.bass;
+
+        if (scoreDiff < 1.6 && (sameRoot || (sameBass && scoreDiff < 1.2))) {
+          best = prevCand;
+        }
       }
+    }
 
-      const top5 = scoreChordCandidates(pitchProfile, lowestBassPc, prevRoot, prevType, keyContext);
-      const best = top5[0];
-
-      spanSegments.push({
-        id: `seg_${win.startTicks}`,
-        startTicks: win.startTicks,
-        endTicks: win.endTicks,
-        startSeconds: win.startTicks / ppq * 0.5,
-        endSeconds: win.endTicks / ppq * 0.5,
-        barIndex: win.barIndex,
-        beatIndex: win.beatIndex,
+    return {
+      segment: {
+        id: `seg_${startTicks}`,
+        startTicks,
+        endTicks,
+        startSeconds: (startTicks / ppq) * 0.5,
+        endSeconds: (endTicks / ppq) * 0.5,
+        barIndex: meter.bar,
+        beatIndex: meter.beat,
         root: best.root,
         rootName: best.rootName,
         type: best.type,
@@ -620,10 +641,87 @@ export function detectChords(
         candidates: top5,
         manualOverride: false,
         sourceType: 'AUTO',
-      });
+      },
+      bestRoot: best.root,
+      bestType: best.type,
+    };
+  };
 
-      prevRoot = best.root;
-      prevType = best.type;
+  const manualSegments = existingSegments
+    .filter(s => s.manualOverride || s.sourceType === 'MANUAL')
+    .sort((a, b) => a.startTicks - b.startTicks);
+
+  // -------------------------------------------------------------
+  // Priority 2: Manual Span Mode (half_bar, one_bar, two_bars, four_bars)
+  // -------------------------------------------------------------
+  if (spanMode !== 'auto') {
+    const spanWindows = generateSpanWindows(meterMap, maxTicks, spanMode, ppq);
+    const spanSegments: ChordSegment[] = [];
+    const insertedManualIds = new Set<string>();
+    let prevRoot: number | null = null;
+    let prevType: ChordType | null = null;
+
+    for (let i = 0; i < spanWindows.length; i++) {
+      const win = spanWindows[i];
+      const winTicks = win.endTicks - win.startTicks;
+      if (winTicks <= 0) continue;
+
+      // Find overlapping manual segments (Phase C & D: Never stretch manual segments!)
+      const overlappingManuals = manualSegments.filter(
+        m => m.startTicks < win.endTicks && m.endTicks > win.startTicks
+      );
+
+      if (overlappingManuals.length === 0) {
+        // Case A: No manual override in this window -> Full Auto Analysis
+        const res = analyzeSlice(win.startTicks, win.endTicks, prevRoot, prevType);
+        spanSegments.push(res.segment);
+        prevRoot = res.bestRoot;
+        prevType = res.bestType;
+      } else {
+        // Case B & C: Window has one or more manual segments -> Non-destructive window splitting
+        let curTick = win.startTicks;
+
+        for (let mIdx = 0; mIdx < overlappingManuals.length; mIdx++) {
+          const m = overlappingManuals[mIdx];
+
+          // If there's an auto sub-interval before this manual segment
+          if (curTick < m.startTicks) {
+            const autoEnd = Math.min(win.endTicks, m.startTicks);
+            const res = analyzeSlice(curTick, autoEnd, prevRoot, prevType);
+            spanSegments.push(res.segment);
+            prevRoot = res.bestRoot;
+            prevType = res.bestType;
+            curTick = autoEnd;
+          }
+
+          // Insert manual segment at its exact original tick boundaries
+          if (!insertedManualIds.has(m.id)) {
+            const meter = getMeterPosition(m.startTicks, ppq, timeSignatures);
+            spanSegments.push({
+              ...m,
+              startTicks: m.startTicks,
+              endTicks: m.endTicks,
+              barIndex: meter.bar,
+              beatIndex: meter.beat,
+              sourceType: 'MANUAL',
+              manualOverride: true,
+            });
+            insertedManualIds.add(m.id);
+            prevRoot = m.root;
+            prevType = m.type;
+          }
+
+          curTick = Math.max(curTick, m.endTicks);
+        }
+
+        // If there's an auto sub-interval after the last manual segment in this window
+        if (curTick < win.endTicks) {
+          const res = analyzeSlice(curTick, win.endTicks, prevRoot, prevType);
+          spanSegments.push(res.segment);
+          prevRoot = res.bestRoot;
+          prevType = res.bestType;
+        }
+      }
     }
 
     return spanSegments;
@@ -640,6 +738,12 @@ export function detectChords(
 
   const changePointsSet = new Set<number>();
   changePointsSet.add(0);
+
+  // Guarantee manual segment boundaries are never crossed or merged
+  manualSegments.forEach(m => {
+    changePointsSet.add(m.startTicks);
+    changePointsSet.add(m.endTicks);
+  });
 
   if (settings.segmentationMode === 'adaptive') {
     const sortedHarmonic = [...harmonicNotes].sort((a, b) => a.startTicks - b.startTicks);
@@ -751,9 +855,12 @@ export function detectChords(
     }
 
     const prev = mergedSegments[mergedSegments.length - 1];
+    const isPrevManual = manualSegments.some(m => m.startTicks <= prev.startTicks && m.endTicks >= prev.endTicks);
+    const isCurrManual = manualSegments.some(m => m.startTicks <= curr.startTicks && m.endTicks >= curr.endTicks);
+
     const similarity = cosineSimilarity(prev.profile, curr.profile);
 
-    if (similarity > 0.85 || curr.totalWeight < 0.05) {
+    if (!isPrevManual && !isCurrManual && (similarity > 0.85 || curr.totalWeight < 0.05)) {
       prev.endTicks = curr.endTicks;
       for (let p = 0; p < 12; p++) {
         prev.profile[p] += curr.profile[p];
@@ -768,6 +875,7 @@ export function detectChords(
   }
 
   const finalSegments: ChordSegment[] = [];
+  const insertedAdaptiveManualIds = new Set<string>();
   let prevRoot: number | null = null;
   let prevType: ChordType | null = null;
 
@@ -775,26 +883,29 @@ export function detectChords(
     const seg = mergedSegments[i];
     const meter = getMeterPosition(seg.startTicks, ppq, timeSignatures);
 
-    // Check manual override (Phase G / Section 24)
-    const segKey = `${seg.startTicks}_${seg.endTicks}`;
-    const manualSeg = overrideMap.get(segKey) || existingSegments.find(
-      s => s.manualOverride &&
-           ((s.startTicks <= seg.startTicks && s.endTicks >= seg.endTicks) ||
-            (seg.startTicks <= s.startTicks && seg.endTicks >= s.endTicks) ||
-            Math.abs(s.startTicks - seg.startTicks) <= 60)
+    // Check manual override (Phase C & D: Never stretch manual segment boundaries!)
+    const manualSeg = manualSegments.find(
+      s => (s.startTicks <= seg.startTicks && s.endTicks >= seg.endTicks) ||
+           (seg.startTicks <= s.startTicks && seg.endTicks >= s.endTicks) ||
+           (s.startTicks === seg.startTicks && s.endTicks === seg.endTicks)
     );
 
     if (manualSeg) {
-      finalSegments.push({
-        ...manualSeg,
-        startTicks: seg.startTicks,
-        endTicks: seg.endTicks,
-        barIndex: meter.bar,
-        beatIndex: meter.beat,
-        sourceType: 'MANUAL',
-      });
-      prevRoot = manualSeg.root;
-      prevType = manualSeg.type;
+      if (!insertedAdaptiveManualIds.has(manualSeg.id)) {
+        const mMeter = getMeterPosition(manualSeg.startTicks, ppq, timeSignatures);
+        finalSegments.push({
+          ...manualSeg,
+          startTicks: manualSeg.startTicks,
+          endTicks: manualSeg.endTicks,
+          barIndex: mMeter.bar,
+          beatIndex: mMeter.beat,
+          sourceType: 'MANUAL',
+          manualOverride: true,
+        });
+        insertedAdaptiveManualIds.add(manualSeg.id);
+        prevRoot = manualSeg.root;
+        prevType = manualSeg.type;
+      }
       continue;
     }
 
