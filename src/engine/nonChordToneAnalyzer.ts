@@ -25,7 +25,7 @@ export function analyzeNonChordTone(
 
   // Check 1: Pedal Point (保続音 / オルゲルプンクト - Phase J)
   // If the note spans across multiple distinct chord segments
-  if (allSegments.length > 1) {
+  if (allSegments.length > 1 && (note.startTicks < currentSegment.startTicks || note.endTicks > currentSegment.endTicks)) {
     const overlappingSegments = allSegments.filter(
       seg => seg.startTicks < note.endTicks && seg.endTicks > note.startTicks
     );

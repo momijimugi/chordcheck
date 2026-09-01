@@ -146,6 +146,11 @@ export function parseMidiFile(input: ArrayBuffer | ArrayBufferLike | Uint8Array,
     }, ppq);
 
     const detectedRole = classification.suggestedRole;
+    const detectedChordRole = classification.suggestedChordRole || (
+      detectedRole === 'bass' ? 'bass_anchor' :
+      (detectedRole === 'melody' ? 'melody' :
+      (detectedRole === 'percussion' || detectedRole === 'keyswitch' || detectedRole === 'ignore' ? 'exclude' : 'primary_harmony'))
+    );
     const color = TRACK_COLORS[appTrackId % TRACK_COLORS.length];
     const melodicConfidence = calculateMelodicConfidence(track.notes);
 
@@ -157,6 +162,10 @@ export function parseMidiFile(input: ArrayBuffer | ArrayBufferLike | Uint8Array,
       role: detectedRole === 'chord_guide' ? 'chord_guide' : 'auto',
       detectedRole,
       roleSource: 'automatic',
+      chordAnalysisRole: 'auto',
+      detectedChordAnalysisRole: detectedChordRole,
+      chordAnalysisRoleSource: 'automatic',
+      chordRoleConfidence: classification.chordRoleConfidence ?? 70,
       instrumentFamily: classification.instrumentFamily,
       classification,
       rangePreset: 'all',

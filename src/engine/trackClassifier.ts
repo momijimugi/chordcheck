@@ -134,6 +134,8 @@ export function classifyTrack(
   if (drumConfidence >= 55) {
     return {
       suggestedRole: 'percussion',
+      suggestedChordRole: 'exclude',
+      chordRoleConfidence: Math.max(80, drumConfidence),
       instrumentFamily: 'drums',
       instrumentName: isBassDrum ? 'Bass Drum' : (name || 'Drums'),
       confidence: drumConfidence,
@@ -146,6 +148,8 @@ export function classifyTrack(
   if (hasAnyKeyword(name, CHORD_GUIDE_KEYWORDS)) {
     return {
       suggestedRole: 'chord_guide',
+      suggestedChordRole: 'primary_harmony',
+      chordRoleConfidence: 100,
       instrumentFamily: 'keyboard',
       instrumentName: name || 'Chord Guide',
       confidence: 90,
@@ -158,6 +162,8 @@ export function classifyTrack(
   if (!isBassDrum && hasAnyKeyword(name, BASS_KEYWORDS)) {
     return {
       suggestedRole: 'bass',
+      suggestedChordRole: 'bass_anchor',
+      chordRoleConfidence: 92,
       instrumentFamily: 'bass',
       instrumentName: name || 'Bass',
       confidence: 92,

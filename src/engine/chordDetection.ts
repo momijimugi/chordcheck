@@ -19,6 +19,7 @@ import {
   buildMeterMap,
   getBarStartTicks,
   getMeterPosition,
+  getMusicalBeatTicks,
   getTimeSignatureAtTicks,
   MeterRegion,
   ticksToMusicalPosition,
@@ -128,45 +129,38 @@ export interface SpanWindow {
  */
 export function generateSpanWindows(
   meterMap: MeterRegion[],
-  maxTicks: number,
+  totalDurationTicks: number,
   span: ChordAnalysisSpan,
-  ppq: number
+  ppq: number = 480
 ): SpanWindow[] {
   const windows: SpanWindow[] = [];
-  if (!meterMap || meterMap.length === 0) {
-    const barTicks = ppq * 4;
-    let t = 0;
-    while (t < maxTicks) {
-      windows.push({ startTicks: t, endTicks: Math.min(maxTicks, t + barTicks), barIndex: Math.floor(t / barTicks) + 1, beatIndex: 1 });
-      t += barTicks;
-    }
-    return windows;
-  }
+  const maxTicks = totalDurationTicks > 0 ? totalDurationTicks : ppq * 4;
 
+  // Group into bars first
   interface BarInfo {
     barIndex: number;
     startTicks: number;
     endTicks: number;
+    ticksPerBar: number;
+    ticksPerBeat: number;
     numerator: number;
     denominator: number;
-    ticksPerBeat: number;
-    ticksPerBar: number;
   }
-
   const bars: BarInfo[] = [];
+
   meterMap.forEach(region => {
     let tick = region.startTicks;
-    let b = 0;
+    let b = region.startBar;
     while (tick < region.endTicks && tick < maxTicks) {
-      const bEnd = Math.min(region.endTicks, tick + region.ticksPerBar);
+      const barEnd = Math.min(region.endTicks, tick + region.ticksPerBar);
       bars.push({
-        barIndex: region.startBar + b,
+        barIndex: b,
         startTicks: tick,
-        endTicks: bEnd,
+        endTicks: barEnd,
+        ticksPerBar: region.ticksPerBar,
+        ticksPerBeat: region.ticksPerBeat,
         numerator: region.numerator,
         denominator: region.denominator,
-        ticksPerBeat: region.ticksPerBeat,
-        ticksPerBar: region.ticksPerBar,
       });
       tick += region.ticksPerBar;
       b++;
@@ -179,29 +173,22 @@ export function generateSpanWindows(
 
   if (span === 'two_beats') {
     bars.forEach(bar => {
-      // In 4/4 or 3/4 or other meters: 2 beats = 2 * bar.ticksPerBeat (Phase G / Section 16-20)
-      const twoBeatsTicks = Math.round(bar.ticksPerBeat * 2);
-      if (bar.ticksPerBar > twoBeatsTicks) {
-        const splitPoint = bar.startTicks + twoBeatsTicks;
+      // Compound Meter aware (Phase F, G, H, I): 1 musical beat in 6/8, 9/8, 12/8 is 1.5 ppq (dotted quarter)
+      const musicalBeatTicks = getMusicalBeatTicks(bar.numerator, bar.denominator, ppq);
+      const twoBeatsTicks = Math.round(musicalBeatTicks * 2);
+
+      let currentTick = bar.startTicks;
+      let beatIdx = 1;
+      while (currentTick < bar.endTicks) {
+        const nextTick = Math.min(bar.endTicks, currentTick + twoBeatsTicks);
         windows.push({
-          startTicks: bar.startTicks,
-          endTicks: splitPoint,
+          startTicks: currentTick,
+          endTicks: nextTick,
           barIndex: bar.barIndex,
-          beatIndex: 1,
+          beatIndex: beatIdx,
         });
-        windows.push({
-          startTicks: splitPoint,
-          endTicks: bar.endTicks,
-          barIndex: bar.barIndex,
-          beatIndex: 3,
-        });
-      } else {
-        windows.push({
-          startTicks: bar.startTicks,
-          endTicks: bar.endTicks,
-          barIndex: bar.barIndex,
-          beatIndex: 1,
-        });
+        currentTick = nextTick;
+        beatIdx += 2;
       }
     });
   } else if (span === 'half_bar') {

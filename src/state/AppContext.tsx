@@ -522,7 +522,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ...t.settings,
             chordAnalysisRole: chordRole,
             chordAnalysisRoleSource: (chordRole === 'auto' ? 'automatic' : 'manual') as 'automatic' | 'manual',
-            ignore: chordRole === 'exclude' ? true : t.settings.ignore,
           },
         };
       }

@@ -169,9 +169,13 @@ export function analyzeMidi(
       prevSegment
     );
 
-    // Generate pitch suggestions (O(1) fast sequential notes lookup)
-    const { prevNote, nextNote } = getSequentialTrackNotesFast(context, note);
-    noteAnalysis.suggestions = generateNoteSuggestions(note, currentSegment, prevNote, nextNote);
+    // Generate pitch suggestions for notes requiring review/changes (O(1) fast sequential notes lookup)
+    if (noteAnalysis.status !== 'SAFE') {
+      const { prevNote, nextNote } = getSequentialTrackNotesFast(context, note);
+      noteAnalysis.suggestions = generateNoteSuggestions(note, currentSegment, prevNote, nextNote);
+    } else {
+      noteAnalysis.suggestions = [];
+    }
 
     analyses.set(note.id, noteAnalysis);
     statusCounts[noteAnalysis.status]++;

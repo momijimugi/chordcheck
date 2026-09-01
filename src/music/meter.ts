@@ -26,6 +26,22 @@ export interface MusicalPosition {
   description: string;
 }
 
+/**
+ * Returns the duration in ticks of a musical beat for simple or compound meter.
+ * In compound meters (e.g. 6/8, 9/8, 12/8), 1 musical beat is a dotted quarter (3 eighth notes = 1.5 * ppq).
+ * In simple meters (e.g. 4/4, 3/4, 2/4), 1 musical beat is a notated quarter (ppq * 4 / denominator).
+ */
+export function getMusicalBeatTicks(
+  numerator: number,
+  denominator: number,
+  ppq: number
+): number {
+  if (denominator === 8 && numerator >= 6 && numerator % 3 === 0) {
+    return ppq * 1.5;
+  }
+  return ppq * (4 / denominator);
+}
+
 export function buildMeterMap(
   timeSignatures: TimeSignatureInfo[],
   ppq: number,
