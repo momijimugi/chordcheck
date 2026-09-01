@@ -1,73 +1,13 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="ja" class="dark">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>電卓アプリ</title>
-    <style>
-        /* 既存のスタイル */
-    </style>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2310b981' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><path d='m9 12 2 2 4-4'/></svg>" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MIDI Harmony Inspector β - MIDI Harmony Spell Checker</title>
 </head>
-<body>
-    <h1>電卓アプリ</h1>
-    <input type="text" id="display" disabled>
-    <div>
-        <button onclick="append('7')">7</button>
-        <button onclick="append('8')">8</button>
-        <button onclick="append('9')">9</button>
-        <button onclick="calculate()">=</button>
-    </div>
-    <div>
-        <button onclick="append('4')">4</button>
-        <button onclick="append('5')">5</button>
-        <button onclick="append('6')">6</button>
-        <button onclick="clearDisplay()">C</button>
-    </div>
-    <div>
-        <button onclick="append('1')">1</button>
-        <button onclick="append('2')">2</button>
-        <button onclick="append('3')">3</button>
-        <button onclick="saveResult()">保存</button>
-    </div>
-    <div>
-        <button onclick="append('+')">+</button>
-        <button onclick="append('-')">-</button>
-        <button onclick="append('*')">*</button>
-        <button onclick="append('/')">/</button>
-    </div>
-
-    <script>
-        let display = document.getElementById('display');
-        let currentInput = '';
-        let operator = '';
-
-        function append(value) {
-            if (value === '+' || value === '-' || value === '*' || value === '/') {
-                operator = value;
-                currentInput += value;
-            } else {
-                currentInput += value;
-                display.value = currentInput;
-            }
-        }
-
-        function calculate() {
-            let result = eval(currentInput);
-            display.value = result;
-            currentInput = result.toString();
-        }
-
-        function clearDisplay() {
-            currentInput = '';
-            operator = '';
-            display.value = '';
-        }
-
-        function saveResult() {
-            // 保存機能を実装する
-            localStorage.setItem('calculationResult', display.value);
-            alert('計算結果が保存されました');
-        }
-    </script>
+<body class="bg-[#121316] text-slate-200 overflow-hidden select-none">
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
 </body>
 </html>
