@@ -160,6 +160,22 @@ export const CHORD_DEFINITIONS: Record<ChordType, ChordDefinition> = {
     tensions: [6, 9], // #11, 13
     alteredTensions: [1, 3, 8],
   },
+  nc: {
+    type: 'nc',
+    name: 'No Chord',
+    shortName: 'N.C.',
+    intervals: [],
+    tensions: [],
+    alteredTensions: [],
+  },
+  unknown: {
+    type: 'unknown',
+    name: 'Unknown',
+    shortName: '?',
+    intervals: [],
+    tensions: [],
+    alteredTensions: [],
+  },
 };
 
 export const ALL_CHORD_TYPES: ChordType[] = [
@@ -169,6 +185,8 @@ export const ALL_CHORD_TYPES: ChordType[] = [
 ];
 
 export function formatChordName(root: number, type: ChordType, bass?: number): string {
+  if (type === 'nc') return 'N.C.';
+  if (type === 'unknown') return '?';
   const rootStr = pitchClassToName(root);
   const def = CHORD_DEFINITIONS[type];
   const short = def ? def.shortName : '';

@@ -1,0 +1,96 @@
+import { KeyContext } from '../types/analysis';
+import { NoteData } from '../types/midi';
+import { PITCH_NAMES, PITCH_NAMES_FLAT } from '../utils/constants';
+
+// Krumhansl-Schmuckler Key Profiles
+const MAJOR_PROFILE = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
+const MINOR_PROFILE = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
+
+// Flat-preferring root pitch classes
+const FLAT_MAJOR_ROOTS = [5, 10, 3, 8, 1]; // F (5), Bb (10), Eb (3), Ab (8), Db (1)
+const FLAT_MINOR_ROOTS = [2, 7, 0, 5, 10]; // D (2), G (7), C (0), F (5), Bb (10)
+
+function correlation(v1: number[], v2: number[]): number {
+  const n = v1.length;
+  const mean1 = v1.reduce((s, x) => s + x, 0) / n;
+  const mean2 = v2.reduce((s, x) => s + x, 0) / n;
+
+  let numerator = 0;
+  let denom1 = 0;
+  let denom2 = 0;
+
+  for (let i = 0; i < n; i++) {
+    const d1 = v1[i] - mean1;
+    const d2 = v2[i] - mean2;
+    numerator += d1 * d2;
+    denom1 += d1 * d1;
+    denom2 += d2 * d2;
+  }
+
+  if (denom1 === 0 || denom2 === 0) return 0;
+  return numerator / Math.sqrt(denom1 * denom2);
+}
+
+export function detectKeyFromNotes(notes: NoteData[]): KeyContext {
+  if (notes.length === 0) {
+    return { root: 0, mode: 'major', name: 'C Major', confidence: 50, manualOverride: false };
+  }
+
+  // Build weighted pitch class histogram
+  const histogram = new Array(12).fill(0);
+  notes.forEach(n => {
+    histogram[n.pitchClass] += Math.max(0.1, n.durationTicks / 480);
+  });
+
+  const candidates: { root: number; mode: 'major' | 'minor'; score: number }[] = [];
+
+  for (let root = 0; root < 12; root++) {
+    // Shift histogram to root
+    const rotated = new Array(12);
+    for (let i = 0; i < 12; i++) {
+      rotated[i] = histogram[(root + i) % 12];
+    }
+
+    const majorScore = correlation(rotated, MAJOR_PROFILE);
+    const minorScore = correlation(rotated, MINOR_PROFILE);
+
+    candidates.push({ root, mode: 'major', score: majorScore });
+    candidates.push({ root, mode: 'minor', score: minorScore });
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+
+  const best = candidates[0];
+  const second = candidates[1];
+  const margin = Math.max(0, best.score - (second ? second.score : 0));
+  const confidence = Math.max(40, Math.min(98, Math.round(50 + best.score * 30 + margin * 40)));
+
+  const useFlat = best.mode === 'major' ? FLAT_MAJOR_ROOTS.includes(best.root) : FLAT_MINOR_ROOTS.includes(best.root);
+  const rootStr = useFlat ? PITCH_NAMES_FLAT[best.root] : PITCH_NAMES[best.root];
+  const modeStr = best.mode === 'major' ? 'Major' : 'Minor';
+
+  return {
+    root: best.root,
+    mode: best.mode,
+    name: `${rootStr} ${modeStr}`,
+    confidence,
+    manualOverride: false,
+  };
+}
+
+export function getEnharmonicPitchName(pitch: number, keyContext?: KeyContext): string {
+  const pc = ((pitch % 12) + 12) % 12;
+  const octave = Math.floor(pitch / 12) - 1;
+
+  let useFlat = false;
+  if (keyContext) {
+    if (keyContext.mode === 'major') {
+      useFlat = FLAT_MAJOR_ROOTS.includes(keyContext.root);
+    } else {
+      useFlat = FLAT_MINOR_ROOTS.includes(keyContext.root);
+    }
+  }
+
+  const name = useFlat ? PITCH_NAMES_FLAT[pc] : PITCH_NAMES[pc];
+  return `${name}${octave}`;
+}

@@ -1,6 +1,7 @@
 import { NonChordToneType, ChordSegment } from '../types/analysis';
 import { NoteData } from '../types/midi';
 import { evaluateNoteRelation } from '../music/chords';
+import { MusicalPosition } from '../music/meter';
 
 export interface NonChordToneResult {
   type: NonChordToneType;
@@ -16,21 +17,42 @@ export function analyzeNonChordTone(
   currentSegment: ChordSegment,
   melodicConfidence: number = 1.0,
   nextSegment?: ChordSegment,
-  prevSegment?: ChordSegment
+  prevSegment?: ChordSegment,
+  meter?: MusicalPosition,
+  allSegments: ChordSegment[] = []
 ): NonChordToneResult {
   const relation = evaluateNoteRelation(note.pitch, currentSegment.root, currentSegment.type, currentSegment.bass);
-  
+
+  // Check 1: Pedal Point (保続音 / オルゲルプンクト - Phase J)
+  // If the note spans across multiple distinct chord segments
+  if (allSegments.length > 1) {
+    const overlappingSegments = allSegments.filter(
+      seg => seg.startTicks < note.endTicks && seg.endTicks > note.startTicks
+    );
+    const distinctChords = new Set(overlappingSegments.map(s => `${s.root}_${s.type}`));
+    if (overlappingSegments.length >= 2 && distinctChords.size >= 2) {
+      return {
+        type: 'pedal_point',
+        label: '保続音 (Pedal Point)',
+        isResolved: true,
+        resolutionDescription: `${overlappingSegments.length}個の異なる和音区間にわたり持続・維持`,
+        reasons: ['コード進行をまたぐ保続音 (Pedal Point)'],
+      };
+    }
+  }
+
+  // If chord tone, return chord tone resolution (unless it was a pedal point across multiple chords)
   if (relation.isChordTone) {
     return {
       type: 'none',
       isResolved: true,
-      resolutionDescription: 'コードトーン',
-      reasons: [`コードトーン (${relation.intervalName})`],
+      resolutionDescription: 'コード構成音',
+      reasons: [`コード構成音 (${relation.intervalName})`],
     };
   }
 
-  // If track is heavily polyphonic (piano chords, dense pads with low melodic confidence),
-  // suppress linear stepwise passing/neighbor tone deduction to avoid false positive voice leading
+  // If track is heavily polyphonic (dense chords/pads with low melodic confidence),
+  // suppress linear voice leading passing/neighbor deduction
   if (melodicConfidence < 0.35) {
     return {
       type: 'none',
@@ -40,7 +62,7 @@ export function analyzeNonChordTone(
     };
   }
 
-  // Filter out simultaneous notes (notes sounding at the exact same start tick) to get distinct sequential notes
+  // Filter sequential notes
   const sequentialNotes = trackNotes
     .filter(n => Math.abs(n.startTicks - note.startTicks) > 20 || n.id === note.id)
     .sort((a, b) => a.startTicks - b.startTicks);
@@ -51,13 +73,13 @@ export function analyzeNonChordTone(
 
   const reasons: string[] = [];
 
-  // 1. Neighbor Tone check: E -> F -> E
+  // Check 2: Neighbor Tone (刺繍音: E -> F -> E)
   if (prevNote && nextNote) {
     const diffPrev = note.pitch - prevNote.pitch;
     const diffNext = nextNote.pitch - note.pitch;
     
     if (prevNote.pitch === nextNote.pitch && (Math.abs(diffPrev) === 1 || Math.abs(diffPrev) === 2)) {
-      const neighborLabel = Math.abs(diffPrev) === 1 ? '半音階刺繍音 (Chromatic Neighbor Tone)' : '刺繍音 (Neighbor Tone)';
+      const neighborLabel = Math.abs(diffPrev) === 1 ? '半音階刺繍音 (Chromatic Neighbor)' : '刺繍音 (Neighbor Tone)';
       reasons.push(`${neighborLabel} (${prevNote.name} → ${note.name} → ${nextNote.name})`);
       return {
         type: 'neighbor',
@@ -68,7 +90,7 @@ export function analyzeNonChordTone(
       };
     }
 
-    // 2. Passing Tone check: E -> F -> G or G -> F -> E
+    // Check 3: Passing Tone (経過音: E -> F -> G)
     const isStepwisePrev = Math.abs(diffPrev) === 1 || Math.abs(diffPrev) === 2;
     const isStepwiseNext = Math.abs(diffNext) === 1 || Math.abs(diffNext) === 2;
     const isSameDirection = (diffPrev > 0 && diffNext > 0) || (diffPrev < 0 && diffNext < 0);
@@ -76,7 +98,7 @@ export function analyzeNonChordTone(
     if (isStepwisePrev && isStepwiseNext && isSameDirection) {
       const isChromatic = Math.abs(diffPrev) === 1 && Math.abs(diffNext) === 1;
       const passingType: NonChordToneType = isChromatic ? 'chromatic_passing' : 'passing';
-      const label = isChromatic ? '半音階経過音 (Chromatic Passing Tone)' : '経過音 (Passing Tone)';
+      const label = isChromatic ? '半音階経過音 (Chromatic Passing)' : '経過音 (Passing Tone)';
       reasons.push(`${label} (${prevNote.name} → ${note.name} → ${nextNote.name})`);
       return {
         type: passingType,
@@ -86,13 +108,60 @@ export function analyzeNonChordTone(
         reasons,
       };
     }
+
+    // Check 4: Escape Tone (逸音 / エスケープトーン)
+    const prevRelation = evaluateNoteRelation(prevNote.pitch, currentSegment.root, currentSegment.type, currentSegment.bass);
+    const nextRelation = evaluateNoteRelation(nextNote.pitch, currentSegment.root, currentSegment.type, currentSegment.bass);
+    const isOppositeDirection = (diffPrev > 0 && diffNext < 0) || (diffPrev < 0 && diffNext > 0);
+    const isLeapNext = Math.abs(diffNext) >= 3;
+
+    if (prevRelation.isChordTone && isStepwisePrev && isOppositeDirection && isLeapNext && nextRelation.isChordTone) {
+      return {
+        type: 'escape_tone',
+        label: '逸音 (Escape Tone)',
+        isResolved: true,
+        resolutionDescription: `${prevNote.name}から順次進行後、反対方向 ${nextNote.name} へ跳躍解決`,
+        reasons: [`逸音 (Escape Tone: ${prevNote.name} → ${note.name} → ${nextNote.name})`],
+      };
+    }
   }
 
-  // 3. Anticipation check
+  // Check 5: Chromatic Approach (半音アプローチ: D# -> E)
+  if (nextNote && (note.durationTicks <= 360 || (meter && !meter.isDownbeat))) {
+    const semitoneDiff = Math.abs(note.pitch - nextNote.pitch);
+    const nextRelation = evaluateNoteRelation(nextNote.pitch, currentSegment.root, currentSegment.type, currentSegment.bass);
+    if (semitoneDiff === 1 && nextRelation.isChordTone) {
+      const approachDesc = note.pitch < nextNote.pitch ? '下からの半音アプローチ' : '上からの半音アプローチ';
+      return {
+        type: 'chromatic_approach',
+        label: `半音アプローチ (${approachDesc})`,
+        isResolved: true,
+        resolutionDescription: `次音 ${nextNote.name} (${nextRelation.intervalName}) へ半音アプローチ`,
+        reasons: [`半音アプローチ (${note.name} → ${nextNote.name})`],
+      };
+    }
+  }
+
+  // Check 6: Appoggiatura (強拍倚音)
+  if (meter && (meter.isDownbeat || meter.isStrongBeat) && nextNote) {
+    const stepDiff = Math.abs(note.pitch - nextNote.pitch);
+    const nextRelation = evaluateNoteRelation(nextNote.pitch, currentSegment.root, currentSegment.type, currentSegment.bass);
+    if ((stepDiff === 1 || stepDiff === 2) && nextRelation.isChordTone) {
+      return {
+        type: 'appoggiatura',
+        label: '倚音 (Appoggiatura)',
+        isResolved: true,
+        resolutionDescription: `強拍上で発音され、次音 ${nextNote.name} (${nextRelation.intervalName}) へ順次解決`,
+        reasons: [`強拍倚音 (Appoggiatura: ${note.name} → ${nextNote.name})`],
+      };
+    }
+  }
+
+  // Check 7: Anticipation (先行動音)
   if (nextSegment && nextSegment.id !== currentSegment.id) {
     const ticksUntilNextChord = nextSegment.startTicks - note.startTicks;
-    const isCloseToChordChange = ticksUntilNextChord <= (note.durationTicks * 1.5);
-    
+    const isCloseToChordChange = ticksUntilNextChord <= (note.durationTicks * 2.0);
+
     const nextRelation = evaluateNoteRelation(note.pitch, nextSegment.root, nextSegment.type, nextSegment.bass);
     if (isCloseToChordChange && nextRelation.isChordTone) {
       reasons.push(`先行動音 (次コード ${nextSegment.displayName} の ${nextRelation.intervalName} を先行発音)`);
@@ -106,7 +175,7 @@ export function analyzeNonChordTone(
     }
   }
 
-  // 4. Suspension check
+  // Check 8: Suspension (掛留音)
   if (prevSegment && prevSegment.id !== currentSegment.id && nextNote) {
     const prevRelation = evaluateNoteRelation(note.pitch, prevSegment.root, prevSegment.type, prevSegment.bass);
     const stepDown = note.pitch - nextNote.pitch;

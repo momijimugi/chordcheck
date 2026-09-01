@@ -2,7 +2,8 @@ import { Midi } from '@tonejs/midi';
 import { MidiData, NoteData, TrackData, TrackRole, TrackSettings } from '../types/midi';
 import { pitchToName, getPitchClass, getOctave } from '../music/pitch';
 import { TRACK_COLORS } from '../utils/constants';
-import { detectTrackKeyswitches, getPitchRangeForPreset } from './keyswitchDetection';
+import { detectTrackKeyswitches } from './keyswitchDetection';
+import { parseSMFNoteOffsets, SMFNoteOffset } from './smfPatcher';
 
 export function detectTrackRoleFromNameAndNotes(
   name: string,
@@ -77,8 +78,19 @@ export function calculateMelodicConfidence(notes: { ticks: number; durationTicks
   return Math.max(0.05, Math.min(1.0, 1.0 - (overlapRatio * 1.5)));
 }
 
-export function parseMidiFile(arrayBuffer: ArrayBuffer, fileName: string): MidiData {
-  const midi = new Midi(arrayBuffer);
+export function parseMidiFile(input: ArrayBuffer | ArrayBufferLike | Uint8Array, fileName: string): MidiData {
+  const originalBytes = input instanceof Uint8Array 
+    ? new Uint8Array(input.buffer.slice(input.byteOffset, input.byteOffset + input.byteLength))
+    : new Uint8Array(input.slice(0));
+  const midi = new Midi(originalBytes);
+
+  // Extract low-level SMF byte offsets for byte-identical patching
+  let smfOffsets: SMFNoteOffset[] = [];
+  try {
+    smfOffsets = parseSMFNoteOffsets(originalBytes);
+  } catch (err) {
+    console.warn('Failed to parse SMF byte offsets, will fall back to tonejs export:', err);
+  }
 
   const ppq = midi.header.ppq || 480;
   const timeSignatures = midi.header.timeSignatures.map(ts => ({
@@ -129,11 +141,24 @@ export function parseMidiFile(arrayBuffer: ArrayBuffer, fileName: string): MidiD
 
     const trackNotes: NoteData[] = [];
 
+    // Match offsets against remaining SMF offsets for this track
     track.notes.forEach((note, sourceNoteIndex) => {
       const pitch = note.midi;
       const startTicks = note.ticks;
       const durationTicks = note.durationTicks;
       const endTicks = startTicks + durationTicks;
+
+      // Find matching SMF offset by pitch and startTicks
+      const offsetIndex = smfOffsets.findIndex(
+        o => (o.channel === track.channel || o.trackIndex === sourceTrackIndex) &&
+             o.pitch === pitch &&
+             Math.abs(o.startTicks - startTicks) <= 2
+      );
+
+      let matchedOffset: SMFNoteOffset | undefined;
+      if (offsetIndex >= 0) {
+        matchedOffset = smfOffsets.splice(offsetIndex, 1)[0];
+      }
 
       const noteData: NoteData = {
         id: `trk${sourceTrackIndex}_n${sourceNoteIndex}_t${startTicks}`,
@@ -153,6 +178,8 @@ export function parseMidiFile(arrayBuffer: ArrayBuffer, fileName: string): MidiD
         velocity: note.velocity,
         channel: track.channel,
         originalPitch: pitch,
+        noteOnPitchByteOffset: matchedOffset?.noteOnPitchByteOffset,
+        noteOffPitchByteOffset: matchedOffset?.noteOffPitchByteOffset,
       };
 
       trackNotes.push(noteData);
@@ -196,6 +223,7 @@ export function parseMidiFile(arrayBuffer: ArrayBuffer, fileName: string): MidiD
     timeSignatures,
     tracks,
     notes: allNotes.sort((a, b) => a.startTicks - b.startTicks),
-    rawMidi: midi, // Stored for nondestructive patch export
+    rawMidi: midi,
+    originalBytes,
   };
 }

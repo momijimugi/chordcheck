@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, midi_harmony_inspector_beta ]
+  pull_request:
+    branches: [ main, midi_harmony_inspector_beta ]
+
+jobs:
+  build_and_test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Typecheck and Build
+        run: npm run build
+
+      - name: Run Test Suite
+        run: npm test

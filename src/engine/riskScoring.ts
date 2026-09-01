@@ -1,19 +1,17 @@
 import { NoteAnalysis, RiskLevel, SuggestedPitch, VoiceCollision, AnalysisSettings, ChordSegment, CategorizedReasons } from '../types/analysis';
 import { NoteData, TrackData, TimeSignatureInfo } from '../types/midi';
 import { evaluateNoteRelation } from '../music/chords';
-import { getMeterPosition } from '../music/meter';
+import { getMeterPosition, ticksToMusicalPosition } from '../music/meter';
 import { formatDurationTicks } from '../music/pitch';
 import { analyzeNonChordTone } from './nonChordToneAnalyzer';
 import { RISK_THRESHOLDS } from '../utils/constants';
+import { AnalysisContext, getOverlappingNotesFast } from './analysisContext';
 
 export function calculateNoteRisk(
   note: NoteData,
   track: TrackData,
-  allNotes: NoteData[],
-  allTracks: TrackData[],
+  context: AnalysisContext,
   currentSegment: ChordSegment,
-  ppq: number,
-  timeSignatures: TimeSignatureInfo[],
   settings: AnalysisSettings,
   nextSegment?: ChordSegment,
   prevSegment?: ChordSegment
@@ -29,21 +27,28 @@ export function calculateNoteRisk(
   let score = 0;
 
   const relation = evaluateNoteRelation(note.pitch, currentSegment.root, currentSegment.type, currentSegment.bass);
-  const meter = getMeterPosition(note.startTicks, ppq, timeSignatures);
-  const durationDesc = formatDurationTicks(note.durationTicks, ppq);
-  const durationRatio = note.durationTicks / ppq;
+  const meter = ticksToMusicalPosition(note.startTicks, context.meterMap, context.ppq);
+  const durationDesc = formatDurationTicks(note.durationTicks, context.ppq);
+  const durationRatio = note.durationTicks / context.ppq;
 
+  const trackNotes = context.sortedTrackNotes.get(note.trackId) || track.notes;
   const nctResult = analyzeNonChordTone(
     note,
-    track.notes,
+    trackNotes,
     currentSegment,
     track.melodicConfidence,
     nextSegment,
-    prevSegment
+    prevSegment,
+    meter,
+    context.segments
   );
 
   // 1. 和声関係の評価 (Harmony Relation)
-  if (relation.isChordTone) {
+  if (currentSegment.type === 'nc' || currentSegment.type === 'unknown') {
+    const r = '和声情報なし (N.C. / 不明区間)';
+    reasons.push(r);
+    categorized.harmony.push(r);
+  } else if (relation.isChordTone) {
     score += settings.chordToneBonus;
     const r = `コード構成音 (${relation.intervalName}) - コード: ${currentSegment.displayName}`;
     reasons.push(r);
@@ -54,7 +59,7 @@ export function calculateNoteRisk(
     reasons.push(r);
     categorized.harmony.push(r);
   } else if (relation.isAlteredTension) {
-    score += 15;
+    score += (settings.profile === 'jazz_extended' ? -15 : 15);
     const r = `オルタードテンション (${relation.intervalName}) - コード: ${currentSegment.displayName}`;
     reasons.push(r);
     categorized.harmony.push(r);
@@ -65,8 +70,28 @@ export function calculateNoteRisk(
     categorized.harmony.push(r);
   }
 
-  // 2. 旋律・声部連結 (Melodic Context)
-  if (nctResult.type === 'passing') {
+  // 2. 旋律・声部連結 (Melodic Context & Phase J Advanced NCTs)
+  if (nctResult.type === 'pedal_point') {
+    score = Math.min(score, 10);
+    const r = nctResult.label || '保続音 (Pedal Point)';
+    reasons.push(r);
+    categorized.melodic.push(r);
+  } else if (nctResult.type === 'chromatic_approach') {
+    score -= 35;
+    const r = nctResult.label || '半音アプローチ';
+    reasons.push(r);
+    categorized.melodic.push(r);
+  } else if (nctResult.type === 'escape_tone') {
+    score -= 20;
+    const r = nctResult.label || '逸音 (Escape Tone)';
+    reasons.push(r);
+    categorized.melodic.push(r);
+  } else if (nctResult.type === 'appoggiatura') {
+    score = Math.max(25, Math.min(50, score + 10));
+    const r = nctResult.label || '倚音 (Appoggiatura)';
+    reasons.push(r);
+    categorized.melodic.push(r);
+  } else if (nctResult.type === 'passing') {
     score += settings.passingToneBonus;
     const r = nctResult.label || '経過音';
     reasons.push(r);
@@ -102,14 +127,14 @@ export function calculateNoteRisk(
 
   // 3. タイミング・拍 (Timing & Metric)
   if (meter.isDownbeat) {
-    if (!relation.isChordTone) {
+    if (!relation.isChordTone && nctResult.type !== 'pedal_point') {
       score += settings.strongBeatPenalty;
       const r = '小節頭拍（最も強い拍）に配置';
       reasons.push(r);
       categorized.timing.push(r);
     }
   } else if (meter.isStrongBeat) {
-    if (!relation.isChordTone) {
+    if (!relation.isChordTone && nctResult.type !== 'pedal_point') {
       score += (settings.strongBeatPenalty - 5);
       const r = '強拍に配置';
       reasons.push(r);
@@ -121,7 +146,7 @@ export function calculateNoteRisk(
 
   // 4. 音長 (Duration)
   if (durationRatio >= 1.0) {
-    if (!relation.isChordTone && !relation.isTension) {
+    if (!relation.isChordTone && !relation.isTension && nctResult.type !== 'pedal_point') {
       score += settings.longDurationPenalty;
       const r = `長い音長 (${durationDesc}) でコード外音が鳴存`;
       reasons.push(r);
@@ -136,15 +161,15 @@ export function calculateNoteRisk(
     }
   }
 
-  // 5. 他声部との衝突検出 (Voice Collision)
+  // 5. 高速空間バケットによる他声部衝突判定 (O(1) Spatial Collision Detection)
   const collisions: VoiceCollision[] = [];
-  const trackMap = new Map<number, TrackData>();
-  for (const t of allTracks) trackMap.set(t.id, t);
+  const overlappingCandidates = getOverlappingNotesFast(context, note.startTicks, note.endTicks);
 
-  for (const otherNote of allNotes) {
+  for (let i = 0; i < overlappingCandidates.length; i++) {
+    const otherNote = overlappingCandidates[i];
     if (otherNote.trackId === note.trackId) continue;
-    
-    const otherTrack = trackMap.get(otherNote.trackId);
+
+    const otherTrack = context.trackMap.get(otherNote.trackId);
     if (otherTrack && (otherTrack.settings.ignore || otherTrack.settings.role === 'percussion' || otherTrack.settings.role === 'keyswitch' || otherTrack.settings.role === 'chord_guide')) {
       continue;
     }
@@ -153,15 +178,14 @@ export function calculateNoteRisk(
     const overlapEnd = Math.min(note.endTicks, otherNote.endTicks);
     const overlapTicks = overlapEnd - overlapStart;
 
-    if (overlapTicks > ppq / 8) {
+    if (overlapTicks > context.ppq / 8) {
       const semitoneDist = Math.abs(note.pitch - otherNote.pitch);
 
-      // Direct Minor 2nd (1 semitone) or close Minor 9th (13 semitones)
       if (semitoneDist === 1 || semitoneDist === 13) {
         const intervalName = semitoneDist === 1 ? '短2度 (半音差)' : '短9度';
         const otherTrackName = otherTrack ? otherTrack.name : `トラック ${otherNote.trackId}`;
         const clashDesc = `トラック「${otherTrackName}」(${otherNote.name}) と ${intervalName} で衝突`;
-        
+
         collisions.push({
           otherNoteId: otherNote.id,
           otherPitch: otherNote.pitch,
@@ -181,7 +205,17 @@ export function calculateNoteRisk(
     }
   }
 
-  const clampedScore = Math.max(0, Math.min(100, Math.round(score)));
+  let clampedScore = Math.max(0, Math.min(100, Math.round(score)));
+
+  // 6. 不確実性の伝播 (Uncertainty Propagation - Phase I)
+  // If Chord Confidence < 50% or N.C. / UNKNOWN, cap warning at CHECK
+  const isLowConfidence = currentSegment.confidence < 50 || currentSegment.type === 'nc' || currentSegment.type === 'unknown';
+  if (isLowConfidence && clampedScore >= RISK_THRESHOLDS.WARNING_MIN) {
+    clampedScore = RISK_THRESHOLDS.CHECK_MAX;
+    const r = 'コード推定自体の確信度が低いため要確認 (Uncertain Harmony Context)';
+    reasons.push(r);
+    categorized.harmony.push(r);
+  }
 
   let status: RiskLevel = 'SAFE';
   if (clampedScore <= RISK_THRESHOLDS.SAFE_MAX) {

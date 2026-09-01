@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { AppState, ColorMode, FilterType, HistoryState } from '../types/state';
-import { AnalysisSettings, ChordCandidate, ChordSegment, ChordType, NoteAnalysis } from '../types/analysis';
+import { AnalysisSettings, ChordCandidate, ChordSegment, ChordType, KeyContext, NoteAnalysis } from '../types/analysis';
 import { MidiData, NoteData, RangePreset, TrackData, TrackRole } from '../types/midi';
 import { DEFAULT_ANALYSIS_SETTINGS } from '../utils/constants';
 import { parseMidiFile } from '../engine/midiParser';
@@ -11,6 +11,7 @@ import { downloadMidiFile } from '../utils/download';
 import { audioSynth } from '../engine/audioSynth';
 import { pitchToName, getPitchClass, getOctave } from '../music/pitch';
 import { getPitchRangeForPreset } from '../engine/keyswitchDetection';
+import { detectKeyFromNotes } from '../music/keyDetection';
 
 interface AppContextValue extends AppState {
   loadMidiFile: (file: File) => Promise<void>;
@@ -79,7 +80,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [playheadTicks, setPlayheadTicks] = useState<number>(0);
 
-  // Analysis progress & decoupled error state (Phase C)
+  // Analysis progress & decoupled error state
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [analysisStage, setAnalysisStage] = useState<string>('');
   const [analysisError, setAnalysisError] = useState<string | null>(null);
@@ -92,6 +93,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const isPlayingRef = useRef<boolean>(false);
   const animFrameRef = useRef<number | null>(null);
   const lastPlayTimeRef = useRef<number>(0);
+
+  // Key detection
+  const keyContext = useMemo<KeyContext | undefined>(() => {
+    if (!workingMidi || workingMidi.notes.length === 0) return undefined;
+    return detectKeyFromNotes(workingMidi.notes);
+  }, [workingMidi]);
 
   const takeSnapshot = (midi: MidiData, segs: ChordSegment[]): HistoryState => ({
     notes: midi.notes.map(n => ({ ...n })),
@@ -113,7 +120,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     existingSegs: ChordSegment[] = []
   ) => {
     setIsAnalyzing(true);
-    setAnalysisStage('Analyzing harmony...');
+    setAnalysisStage('和声を解析中...');
     setAnalysisError(null);
 
     try {
@@ -133,11 +140,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const loadMidiBuffer = useCallback((buffer: ArrayBuffer, fileName: string) => {
     try {
       setIsAnalyzing(true);
-      setAnalysisStage('Reading MIDI...');
+      setAnalysisStage('MIDIファイル読み込み中...');
       setAnalysisError(null);
 
       const parsed = parseMidiFile(buffer, fileName);
-      setOriginalMidi(JSON.parse(JSON.stringify(parsed)));
+      setOriginalMidi(parsed);
       setWorkingMidi(parsed);
       setPast([]);
       setFuture([]);
@@ -152,7 +159,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       runAnalysis(parsed, analysisSettings);
     } catch (err) {
       console.error('Failed to parse MIDI file:', err);
-      alert('Failed to parse MIDI file. Please make sure it is a valid Standard MIDI File (.mid).');
+      alert('MIDIファイルの解析に失敗しました。標準MIDIファイル (.mid) であることをご確認ください。');
       setIsAnalyzing(false);
     }
   }, [analysisSettings, runAnalysis]);
@@ -166,9 +173,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const loadDemo = useCallback((demoId: DemoCaseId) => {
     try {
       setIsAnalyzing(true);
-      setAnalysisStage('Generating demo MIDI...');
+      setAnalysisStage('デモMIDIを生成中...');
       const parsed = createDemoMidi(demoId);
-      setOriginalMidi(JSON.parse(JSON.stringify(parsed)));
+      setOriginalMidi(parsed);
       setWorkingMidi(parsed);
       setPast([]);
       setFuture([]);
@@ -457,13 +464,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [future, workingMidi, segments, analysisSettings, runAnalysis]);
 
   const resetAll = useCallback(() => {
-    if (!originalMidi) return;
-    const cloned = JSON.parse(JSON.stringify(originalMidi)) as MidiData;
-    setPast(prev => [...prev, takeSnapshot(workingMidi!, segments)]);
+    if (!workingMidi || !workingMidi.originalBytes) return;
+    const freshMidi = parseMidiFile(workingMidi.originalBytes.buffer, `${workingMidi.name}.mid`);
+    setPast(prev => [...prev, takeSnapshot(workingMidi, segments)]);
     setFuture([]);
-    setWorkingMidi(cloned);
-    runAnalysis(cloned, analysisSettings);
-  }, [originalMidi, workingMidi, segments, analysisSettings, runAnalysis]);
+    setWorkingMidi(freshMidi);
+    runAnalysis(freshMidi, analysisSettings);
+  }, [workingMidi, segments, analysisSettings, runAnalysis]);
 
   const selectNote = useCallback((noteId: string | null) => {
     setSelectedNoteId(noteId);
@@ -502,7 +509,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setScrollTop(Math.max(0, top));
   }, []);
 
-  // Enhanced Warning Navigator with X and Y centering (Section 33)
   const navigateWarning = useCallback((direction: 'prev' | 'next') => {
     if (!workingMidi || analyses.size === 0) return;
 
@@ -531,13 +537,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const targetNote = flaggedNotes[targetIndex];
     if (targetNote) {
       selectNote(targetNote.id);
-      // Auto-scroll timeline to bring note into center view horizontally and vertically
       const noteX = targetNote.startTicks * zoomX;
       const noteY = (108 - targetNote.pitch) * zoomY;
       setScroll(Math.max(0, noteX - 350), Math.max(0, noteY - 180));
     }
   }, [workingMidi, analyses, activeFilter, selectedNoteId, zoomX, zoomY, selectNote, setScroll]);
 
+  // Tempo Map Adaptive Playback (Phase B)
   const togglePlay = useCallback(() => {
     if (isPlayingRef.current) {
       setIsPlaying(false);
@@ -550,15 +556,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       isPlayingRef.current = true;
       lastPlayTimeRef.current = performance.now();
 
-      const bpm = (workingMidi.tempos && workingMidi.tempos[0]?.bpm) || 120;
-      const ticksPerSec = (bpm / 60) * workingMidi.ppq;
-
       const step = (now: number) => {
         if (!isPlayingRef.current) return;
         const deltaSec = (now - lastPlayTimeRef.current) / 1000;
         lastPlayTimeRef.current = now;
 
-        const currentTicks = playheadRef.current + deltaSec * ticksPerSec;
+        const currentPosTicks = playheadRef.current;
+        // Lookup current tempo at currentPosTicks
+        let currentBpm = 120;
+        if (workingMidi.tempos && workingMidi.tempos.length > 0) {
+          let matched = workingMidi.tempos[0];
+          for (const t of workingMidi.tempos) {
+            if (t.ticks <= currentPosTicks) {
+              matched = t;
+            } else {
+              break;
+            }
+          }
+          currentBpm = matched.bpm || 120;
+        }
+
+        const ticksPerSec = (currentBpm / 60) * workingMidi.ppq;
+        const currentTicks = currentPosTicks + deltaSec * ticksPerSec;
+
         if (currentTicks >= workingMidi.durationTicks) {
           playheadRef.current = 0;
           setPlayheadTicks(0);
@@ -632,6 +652,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         segments,
         analyses,
         statusCounts,
+        keyContext,
         selectedNoteId,
         selectedSegmentId,
         activeFilter,

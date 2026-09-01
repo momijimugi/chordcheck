@@ -55,6 +55,8 @@ export interface NoteData {
   velocity: number; // 0-1
   channel: number;
   originalPitch: number; // for reset tracking
+  noteOnPitchByteOffset?: number; // Exact byte index in raw SMF
+  noteOffPitchByteOffset?: number; // Exact byte index in raw SMF
 }
 
 export interface TimeSignatureInfo {
@@ -91,5 +93,6 @@ export interface MidiData {
   timeSignatures: TimeSignatureInfo[];
   tracks: TrackData[];
   notes: NoteData[];
-  rawMidi?: Midi; // Low-level parsed Standard MIDI object for nondestructive export
+  rawMidi?: Midi; // Parsed Standard MIDI object
+  originalBytes?: Uint8Array; // Immutable raw SMF byte array for byte-identical patching
 }

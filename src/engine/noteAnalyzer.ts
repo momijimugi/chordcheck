@@ -1,8 +1,9 @@
-import { AnalysisSettings, ChordSegment, NoteAnalysis, RiskLevel } from '../types/analysis';
-import { MidiData, NoteData, TrackData } from '../types/midi';
+import { AnalysisSettings, ChordSegment, NoteAnalysis } from '../types/analysis';
+import { MidiData } from '../types/midi';
 import { detectChords } from './chordDetection';
 import { calculateNoteRisk } from './riskScoring';
 import { generateNoteSuggestions } from './suggestionEngine';
+import { buildAnalysisContext, findSegmentAtTicksFast } from './analysisContext';
 
 export interface FullAnalysisResult {
   segments: ChordSegment[];
@@ -32,6 +33,15 @@ export function analyzeMidi(
     existingSegments
   );
 
+  // 2. Build High-Performance AnalysisContext
+  const context = buildAnalysisContext(
+    midiData.tracks,
+    midiData.notes,
+    segments,
+    midiData.ppq,
+    midiData.timeSignatures
+  );
+
   const analyses = new Map<string, NoteAnalysis>();
   const statusCounts = {
     SAFE: 0,
@@ -41,25 +51,21 @@ export function analyzeMidi(
     TOTAL: 0,
   };
 
-  const trackMap = new Map<number, TrackData>();
-  for (const t of midiData.tracks) trackMap.set(t.id, t);
-
-  // 2. Map notes to segments and evaluate risk
-  for (const note of midiData.notes) {
-    const track = trackMap.get(note.trackId);
+  // 3. Map notes to segments and evaluate risk
+  for (let i = 0; i < midiData.notes.length; i++) {
+    const note = midiData.notes[i];
+    const track = context.trackMap.get(note.trackId);
     if (!track) continue;
 
-    // Find the chord segment that covers the start of this note
-    const segmentIndex = segments.findIndex(
-      s => note.startTicks >= s.startTicks && note.startTicks < s.endTicks
-    );
-    const currentSegment = segmentIndex >= 0 ? segments[segmentIndex] : segments[0];
-    const prevSegment = segmentIndex > 0 ? segments[segmentIndex - 1] : undefined;
-    const nextSegment = segmentIndex >= 0 && segmentIndex < segments.length - 1 ? segments[segmentIndex + 1] : undefined;
+    // Phase C: Chord Guide track is the source of truth, excluded from warnings and statusCounts
+    if (track.settings.role === 'chord_guide') {
+      continue;
+    }
 
+    const currentSegment = findSegmentAtTicksFast(context, note.startTicks) || segments[0];
     if (!currentSegment) continue;
 
-    // If track is ignored or keyswitch role, classify as SAFE with ignore reason
+    // If track is ignored or percussion/keyswitch role, classify as SAFE
     if (track.settings.ignore || track.settings.role === 'ignore' || track.settings.role === 'percussion' || track.settings.role === 'keyswitch') {
       analyses.set(note.id, {
         noteId: note.id,
@@ -82,12 +88,12 @@ export function analyzeMidi(
         nonChordTone: 'none',
         riskScore: 0,
         status: 'SAFE',
-        reasons: [`Track '${track.name}' is set to ${track.settings.role} (Ignored from harmony check)`],
+        reasons: [`トラック「${track.name}」は${track.settings.role}に設定されているため和声判定から除外`],
         suggestions: [],
         collisions: [],
-        positionDescription: `Bar ${currentSegment.barIndex} Beat ${currentSegment.beatIndex}`,
+        positionDescription: `第${currentSegment.barIndex}小節 第${currentSegment.beatIndex}拍`,
         durationDescription: `${note.durationTicks} ticks`,
-        resolutionDescription: 'Ignored',
+        resolutionDescription: '除外',
       });
       statusCounts.SAFE++;
       statusCounts.TOTAL++;
@@ -117,27 +123,28 @@ export function analyzeMidi(
         nonChordTone: 'none',
         riskScore: 0,
         status: 'SAFE',
-        reasons: [`Pitch ${note.name} outside active analysis range (${track.settings.analysisMinPitch}-${track.settings.analysisMaxPitch})`],
+        reasons: [`音高 ${note.name} は解析音域外 (${track.settings.analysisMinPitch}-${track.settings.analysisMaxPitch}) のため除外`],
         suggestions: [],
         collisions: [],
-        positionDescription: `Bar ${currentSegment.barIndex} Beat ${currentSegment.beatIndex}`,
+        positionDescription: `第${currentSegment.barIndex}小節 第${currentSegment.beatIndex}拍`,
         durationDescription: `${note.durationTicks} ticks`,
-        resolutionDescription: 'Excluded by range filter',
+        resolutionDescription: '音域フィルタにより除外',
       });
       statusCounts.SAFE++;
       statusCounts.TOTAL++;
       continue;
     }
 
-    // Evaluate risk
+    const segIndex = segments.findIndex(s => s.id === currentSegment.id);
+    const prevSegment = segIndex > 0 ? segments[segIndex - 1] : undefined;
+    const nextSegment = segIndex >= 0 && segIndex < segments.length - 1 ? segments[segIndex + 1] : undefined;
+
+    // Evaluate risk with O(1) context
     const noteAnalysis = calculateNoteRisk(
       note,
       track,
-      midiData.notes,
-      midiData.tracks,
+      context,
       currentSegment,
-      midiData.ppq,
-      midiData.timeSignatures,
       settings,
       nextSegment,
       prevSegment

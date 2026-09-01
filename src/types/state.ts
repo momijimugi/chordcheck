@@ -1,4 +1,4 @@
-import { AnalysisResolution, AnalysisSettings, ChordSegment, NoteAnalysis, RiskLevel } from './analysis';
+import { AnalysisResolution, AnalysisSettings, ChordSegment, KeyContext, NoteAnalysis, RiskLevel } from './analysis';
 import { MidiData, NoteData, RangePreset, TrackData, TrackRole } from './midi';
 
 export type FilterType = 'ALL' | 'WARNING_ONLY' | 'CHECK' | 'INFO' | 'SAFE';
@@ -23,6 +23,7 @@ export interface AppState {
     WARNING: number;
     TOTAL: number;
   };
+  keyContext?: KeyContext;
   selectedNoteId: string | null;
   selectedSegmentId: string | null;
   activeFilter: FilterType;

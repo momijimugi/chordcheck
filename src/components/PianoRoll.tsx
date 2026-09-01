@@ -1,7 +1,8 @@
-import React, { useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useRef, useEffect, useCallback, useMemo, useState } from 'react';
 import { useApp } from '../state/AppContext';
 import { RISK_COLORS } from '../utils/constants';
 import { pitchToName, getPitchClass } from '../music/pitch';
+import { buildMeterMap, ticksToMusicalPosition } from '../music/meter';
 import { MidiData } from '../types/midi';
 import { ZoomIn, ZoomOut, Music } from 'lucide-react';
 
@@ -47,6 +48,22 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const isSyncingScroll = useRef(false);
+  const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>({ width: 1200, height: 600 });
+
+  // Update container size on resize
+  useEffect(() => {
+    const updateSize = () => {
+      if (containerRef.current) {
+        setViewportSize({
+          width: containerRef.current.clientWidth,
+          height: containerRef.current.clientHeight,
+        });
+      }
+    };
+    updateSize();
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
+  }, []);
 
   // Sync scroll from state
   useEffect(() => {
@@ -69,6 +86,11 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
   const gridWidth = totalTicks * zoomX + 800;
   const gridHeight = TOTAL_KEYS * zoomY;
 
+  // Meter Map for Variable Time Signatures (Phase B)
+  const meterMap = useMemo(() => {
+    return buildMeterMap(workingMidi.timeSignatures, ppq, totalTicks);
+  }, [workingMidi.timeSignatures, ppq, totalTicks]);
+
   // Track map for track visibility/color lookup
   const trackMap = useMemo(() => {
     const map = new Map<number, (typeof workingMidi.tracks)[0]>();
@@ -89,34 +111,74 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
     return keys;
   }, []);
 
-  // Time grid lines (Bars and Beats)
+  // Dynamic Time grid lines based on Meter Map (Bars, Beats, & Signature changes)
   const gridLines = useMemo(() => {
-    const lines = [];
-    const ticksPerBeat = ppq;
-    const ticksPerBar = ppq * 4;
-    const totalBars = Math.ceil(totalTicks / ticksPerBar) + 2;
+    const lines: {
+      ticks: number;
+      left: number;
+      isBar: boolean;
+      barNumber: number | null;
+      timeSigBadge: string | null;
+    }[] = [];
 
-    for (let bar = 0; bar < totalBars; bar++) {
-      const barTicks = bar * ticksPerBar;
-      lines.push({
-        ticks: barTicks,
-        left: barTicks * zoomX,
-        isBar: true,
-        barNumber: bar + 1,
-      });
+    meterMap.forEach((region, rIdx) => {
+      let currentRegionTicks = region.startTicks;
+      let barInRegion = 0;
 
-      for (let beat = 1; beat < 4; beat++) {
-        const beatTicks = barTicks + beat * ticksPerBeat;
+      while (currentRegionTicks < region.endTicks) {
+        const barTicks = currentRegionTicks;
+        const barNumber = region.startBar + barInRegion;
+        const isFirstBarOfRegion = barInRegion === 0;
+        const timeSigBadge = (isFirstBarOfRegion && (rIdx > 0 || region.numerator !== 4 || region.denominator !== 4))
+          ? `${region.numerator}/${region.denominator}`
+          : null;
+
         lines.push({
-          ticks: beatTicks,
-          left: beatTicks * zoomX,
-          isBar: false,
-          barNumber: null,
+          ticks: barTicks,
+          left: barTicks * zoomX,
+          isBar: true,
+          barNumber,
+          timeSigBadge,
         });
+
+        // Beat lines
+        for (let beat = 1; beat < region.numerator; beat++) {
+          const beatTicks = barTicks + beat * region.ticksPerBeat;
+          if (beatTicks < region.endTicks) {
+            lines.push({
+              ticks: beatTicks,
+              left: beatTicks * zoomX,
+              isBar: false,
+              barNumber: null,
+              timeSigBadge: null,
+            });
+          }
+        }
+
+        currentRegionTicks += region.ticksPerBar;
+        barInRegion++;
       }
-    }
+    });
+
     return lines;
-  }, [totalTicks, ppq, zoomX]);
+  }, [meterMap, zoomX]);
+
+  // Viewport Virtualization bounds (Phase F)
+  const visibleStartTicks = Math.max(0, (scrollLeft - 400) / zoomX);
+  const visibleEndTicks = (scrollLeft + viewportSize.width + 400) / zoomX;
+  const visibleMaxPitch = Math.min(MAX_PITCH, MAX_PITCH - Math.floor((scrollTop - 100) / zoomY) + 12);
+  const visibleMinPitch = Math.max(MIN_PITCH, MAX_PITCH - Math.ceil((scrollTop + viewportSize.height + 100) / zoomY) - 12);
+
+  // Virtualized Visible Notes
+  const visibleNotes = useMemo(() => {
+    return workingMidi.notes.filter(n => {
+      // Time overlap check
+      if (n.endTicks < visibleStartTicks || n.startTicks > visibleEndTicks) return false;
+      // Pitch range check
+      if (n.pitch < visibleMinPitch || n.pitch > visibleMaxPitch) return false;
+      return true;
+    });
+  }, [workingMidi.notes, visibleStartTicks, visibleEndTicks, visibleMinPitch, visibleMaxPitch]);
 
   // Filter evaluation helper
   const isNoteMatchingFilter = useCallback((analysis: any) => {
@@ -229,20 +291,28 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
               }`}
             >
               {line.isBar && (
-                <span className="absolute top-1 left-1.5 text-[10px] font-mono text-slate-500 font-bold">
-                  {line.barNumber}
-                </span>
+                <div className="absolute top-1 left-1.5 flex items-center gap-1.5">
+                  <span className="text-[10px] font-mono text-slate-500 font-bold">
+                    {line.barNumber}
+                  </span>
+                  {line.timeSigBadge && (
+                    <span className="text-[9px] font-mono font-black text-sky-400 bg-sky-950/80 px-1 py-0.2 rounded border border-sky-500/40">
+                      {line.timeSigBadge}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
           ))}
 
-          {/* Notes Rendering */}
-          {workingMidi.notes.map((note) => {
+          {/* Virtualized Notes Rendering */}
+          {visibleNotes.map((note) => {
             const track = trackMap.get(note.trackId);
             if (track && !track.settings.visible) return null;
 
+            const isChordGuideTrack = track?.settings.role === 'chord_guide';
             const analysis = analyses.get(note.id);
-            const matchesFilter = isNoteMatchingFilter(analysis);
+            const matchesFilter = isChordGuideTrack ? true : isNoteMatchingFilter(analysis);
             const isSelected = selectedNoteId === note.id;
 
             const top = (MAX_PITCH - note.pitch) * zoomY;
@@ -251,14 +321,14 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
             const height = Math.max(4, zoomY - 1);
 
             // Risk status styling
-            const status = analysis?.status || 'SAFE';
+            const status = isChordGuideTrack ? 'SAFE' : (analysis?.status || 'SAFE');
             const riskConfig = RISK_COLORS[status];
 
-            // Note appearance based on colorMode
-            let noteBg = riskConfig.hex;
-            let noteBorder = riskConfig.hex;
+            // Note appearance based on colorMode or Chord Guide
+            let noteBg = isChordGuideTrack ? '#0f766e' : riskConfig.hex;
+            let noteBorder = isChordGuideTrack ? '#2dd4bf' : riskConfig.hex;
 
-            if (colorMode === 'track' && track) {
+            if (!isChordGuideTrack && colorMode === 'track' && track) {
               noteBg = track.settings.color;
               noteBorder = riskConfig.hex;
             }
@@ -268,7 +338,9 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
                 key={note.id}
                 onClick={(e) => {
                   e.stopPropagation();
-                  selectNote(note.id);
+                  if (!isChordGuideTrack) {
+                    selectNote(note.id);
+                  }
                 }}
                 style={{
                   top: `${top}px`,
@@ -282,15 +354,21 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
                 className={`absolute rounded-[3px] border cursor-pointer transition-all flex items-center px-1 overflow-hidden select-none ${
                   isSelected
                     ? 'ring-2 ring-white ring-offset-1 ring-offset-black z-30 shadow-lg scale-[1.02]'
+                    : isChordGuideTrack
+                    ? 'z-10 shadow-sm border-dashed'
                     : status === 'WARNING'
                     ? 'shadow-sm shadow-rose-950/80 z-10'
                     : 'z-0 hover:brightness-125'
                 }`}
-                title={`${note.name} (${track?.name || 'Track'}) - ${status} (${analysis?.relation.intervalName || ''})`}
+                title={
+                  isChordGuideTrack
+                    ? `${note.name} (コードガイド)`
+                    : `${note.name} (${track?.name || 'Track'}) - ${status} (${analysis?.relation.intervalName || ''})`
+                }
               >
                 {width > 22 && height >= 10 && (
                   <span className="text-[9px] font-bold text-white/90 drop-shadow-sm truncate pointer-events-none leading-none">
-                    {note.name}
+                    {isChordGuideTrack ? `GUIDE ${note.name}` : note.name}
                   </span>
                 )}
               </div>

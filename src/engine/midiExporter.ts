@@ -5,11 +5,47 @@ export function exportMidiFile(
   midiData: MidiData,
   workingTracks: TrackData[]
 ): Uint8Array {
-  // 1. Nondestructive Patch Export
-  // If we have the original rawMidi instance, mutate only the pitches of notes and export directly.
+  // 1. Zero-reconstruction Direct SMF Byte Patcher (β0.3)
+  // If original immutable bytes exist, patch only the Note On/Off pitch data bytes directly.
+  if (midiData.originalBytes && midiData.originalBytes.length > 0) {
+    try {
+      const patchedBytes = new Uint8Array(midiData.originalBytes.slice(0));
+      let hasPatchFailure = false;
+      let patchCount = 0;
+
+      for (const track of workingTracks) {
+        for (const note of track.notes) {
+          // If note pitch was modified
+          if (note.pitch !== note.originalPitch) {
+            if (
+              note.noteOnPitchByteOffset !== undefined &&
+              note.noteOffPitchByteOffset !== undefined &&
+              note.noteOnPitchByteOffset < patchedBytes.length &&
+              note.noteOffPitchByteOffset < patchedBytes.length
+            ) {
+              patchedBytes[note.noteOnPitchByteOffset] = note.pitch;
+              patchedBytes[note.noteOffPitchByteOffset] = note.pitch;
+              patchCount++;
+            } else {
+              hasPatchFailure = true;
+              break;
+            }
+          }
+        }
+        if (hasPatchFailure) break;
+      }
+
+      if (!hasPatchFailure) {
+        return patchedBytes;
+      }
+    } catch (err) {
+      console.warn('Direct SMF byte patch fallback to Tonejs Midi patch:', err);
+    }
+  }
+
+  // 2. High-level Nondestructive Patch Export
   if (midiData.rawMidi) {
     try {
-      // Re-parse a fresh copy from rawMidi's current array to avoid side effects
       const rawBytes = midiData.rawMidi.toArray();
       const patchedMidi = new Midi(rawBytes);
 
@@ -20,7 +56,6 @@ export function exportMidiFile(
         trackData.notes.forEach(note => {
           const rawNote = rawTrack.notes[note.sourceNoteIndex];
           if (rawNote) {
-            // Apply modified pitch only; velocity, durationTicks, ticks remain untouched
             rawNote.midi = note.pitch;
           }
         });
@@ -28,11 +63,11 @@ export function exportMidiFile(
 
       return patchedMidi.toArray();
     } catch (err) {
-      console.warn('Nondestructive export fallback to standard generation:', err);
+      console.warn('Tone.js patch export fallback to standard generation:', err);
     }
   }
 
-  // 2. Standard Generation Fallback (if rawMidi is unavailable)
+  // 3. Standard Generation Fallback
   const midi = new Midi();
 
   if (midiData.tempos && midiData.tempos.length > 0) {

@@ -1,4 +1,4 @@
-import { AnalysisSettings, RiskLevel } from '../types/analysis';
+import { AnalysisProfile, AnalysisSettings, RiskLevel } from '../types/analysis';
 
 export const PITCH_NAMES = [
   'C', 'C#', 'D', 'D#', 'E', 'F',
@@ -10,7 +10,65 @@ export const PITCH_NAMES_FLAT = [
   'Gb', 'G', 'Ab', 'A', 'Bb', 'B'
 ] as const;
 
+export const ANALYSIS_PROFILES: Record<AnalysisProfile, Partial<AnalysisSettings>> = {
+  balanced: {
+    profile: 'balanced',
+    chordToneBonus: -50,
+    shortDurationBonus: -20,
+    passingToneBonus: -40,
+    neighborToneBonus: -40,
+    weakBeatBonus: -10,
+    strongBeatPenalty: 15,
+    longDurationPenalty: 20,
+    unknownChromaticPenalty: 30,
+    unresolvedPenalty: 20,
+    collisionPenalty: 15,
+  },
+  strict: {
+    profile: 'strict',
+    chordToneBonus: -60,
+    shortDurationBonus: -10,
+    passingToneBonus: -25,
+    neighborToneBonus: -25,
+    weakBeatBonus: -5,
+    strongBeatPenalty: 25,
+    longDurationPenalty: 30,
+    unknownChromaticPenalty: 45,
+    unresolvedPenalty: 30,
+    collisionPenalty: 25,
+  },
+  film_modern: {
+    profile: 'film_modern',
+    chordToneBonus: -40,
+    shortDurationBonus: -25,
+    passingToneBonus: -50,
+    neighborToneBonus: -50,
+    weakBeatBonus: -15,
+    strongBeatPenalty: 10,
+    longDurationPenalty: 10,
+    unknownChromaticPenalty: 20,
+    unresolvedPenalty: 10,
+    collisionPenalty: 10,
+  },
+  jazz_extended: {
+    profile: 'jazz_extended',
+    chordToneBonus: -50,
+    shortDurationBonus: -20,
+    passingToneBonus: -40,
+    neighborToneBonus: -40,
+    weakBeatBonus: -15,
+    strongBeatPenalty: 10,
+    longDurationPenalty: 15,
+    unknownChromaticPenalty: 20,
+    unresolvedPenalty: 15,
+    collisionPenalty: 10,
+  },
+};
+
 export const DEFAULT_ANALYSIS_SETTINGS: AnalysisSettings = {
+  profile: 'balanced',
+  segmentationMode: 'adaptive',
+  minSegmentLength: '1/2_beat',
   resolution: '1_beat',
   harmonySourceMode: 'chord_guide_preferred',
   minDurationTicks: 0,

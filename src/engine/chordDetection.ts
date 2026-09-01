@@ -1,8 +1,8 @@
-import { AnalysisResolution, AnalysisSettings, ChordCandidate, ChordSegment, ChordType, HarmonySourceType } from '../types/analysis';
+import { AnalysisResolution, AnalysisSettings, ChordCandidate, ChordSegment, ChordType } from '../types/analysis';
 import { NoteData, TrackData, TimeSignatureInfo } from '../types/midi';
 import { CHORD_DEFINITIONS, ALL_CHORD_TYPES, formatChordName } from '../music/chords';
 import { CHORD_TEMPLATES } from './chordTemplates';
-import { pitchClassToName, getPitchClass } from '../music/pitch';
+import { pitchClassToName } from '../music/pitch';
 import { getMeterPosition, getTimeSignatureAtTicks } from '../music/meter';
 
 export function getDurationWeight(durationTicks: number, ppq: number): number {
@@ -23,7 +23,7 @@ export function getRoleWeight(track?: TrackData): number {
     case 'bass': return 1.5;
     case 'harmony': return 1.1;
     case 'melody': return 0.6;
-    case 'chord_guide': return 0; // Chord Guide is evaluated directly, not mixed into general profile
+    case 'chord_guide': return 0; // Chord Guide is evaluated directly
     case 'percussion': return 0;
     case 'keyswitch': return 0;
     case 'ignore': return 0;
@@ -47,6 +47,19 @@ export function getTicksPerSegment(
     case '1_bar': return beatTicks * timeSig.numerator;
     default: return beatTicks;
   }
+}
+
+export function cosineSimilarity(v1: number[], v2: number[]): number {
+  let dot = 0;
+  let mag1 = 0;
+  let mag2 = 0;
+  for (let i = 0; i < 12; i++) {
+    dot += v1[i] * v2[i];
+    mag1 += v1[i] * v1[i];
+    mag2 += v2[i] * v2[i];
+  }
+  if (mag1 === 0 || mag2 === 0) return 0;
+  return dot / (Math.sqrt(mag1) * Math.sqrt(mag2));
 }
 
 /**
@@ -183,130 +196,127 @@ export function detectChords(
     }
   }
 
-  // Check for Chord Guide track (Section 22 - 28)
   const chordGuideTrack = tracks.find(t => t.settings.role === 'chord_guide' && t.notes.length > 0);
   const useChordGuide = (settings.harmonySourceMode === 'chord_guide_only' || settings.harmonySourceMode === 'chord_guide_preferred') && chordGuideTrack;
-
-  const segments: ChordSegment[] = [];
   const maxTicks = Math.max(totalDurationTicks, ppq * 4);
 
-  // If Chord Guide track is active, generate segments directly from Chord Guide events
+  // -------------------------------------------------------------
+  // Phase C: Hardened Chord Guide Processing with Onset Clustering
+  // -------------------------------------------------------------
   if (useChordGuide && chordGuideTrack) {
-    // Cluster Chord Guide notes into distinct event boundaries
-    const guideNotes = [...chordGuideTrack.notes].sort((a, b) => a.startTicks - b.startTicks);
-    const timePoints = new Set<number>();
-    timePoints.add(0);
+    const sortedGuideNotes = [...chordGuideTrack.notes].sort((a, b) => a.startTicks - b.startTicks);
+    const clusterTolerance = Math.max(30, Math.round(ppq / 64)); // ~30 ticks
 
-    guideNotes.forEach(n => {
-      timePoints.add(n.startTicks);
-      timePoints.add(n.endTicks);
+    // Group guide notes into onset clusters
+    interface ChordCluster {
+      startTicks: number;
+      endTicks: number;
+      notes: NoteData[];
+    }
+
+    const clusters: ChordCluster[] = [];
+    let currentClusterNotes: NoteData[] = [];
+    let clusterAnchorTick = -1;
+
+    sortedGuideNotes.forEach(note => {
+      if (clusterAnchorTick === -1) {
+        clusterAnchorTick = note.startTicks;
+        currentClusterNotes = [note];
+      } else if (Math.abs(note.startTicks - clusterAnchorTick) <= clusterTolerance) {
+        currentClusterNotes.push(note);
+      } else {
+        // Finalize previous cluster
+        clusters.push({
+          startTicks: clusterAnchorTick,
+          endTicks: currentClusterNotes.reduce((max, n) => Math.max(max, n.endTicks), clusterAnchorTick + ppq),
+          notes: currentClusterNotes,
+        });
+        clusterAnchorTick = note.startTicks;
+        currentClusterNotes = [note];
+      }
     });
-    timePoints.add(maxTicks);
 
-    const sortedPoints = Array.from(timePoints).sort((a, b) => a - b);
+    if (currentClusterNotes.length > 0) {
+      clusters.push({
+        startTicks: clusterAnchorTick,
+        endTicks: currentClusterNotes.reduce((max, n) => Math.max(max, n.endTicks), clusterAnchorTick + ppq),
+        notes: currentClusterNotes,
+      });
+    }
 
-    for (let i = 0; i < sortedPoints.length - 1; i++) {
-      const startTicks = sortedPoints[i];
-      const endTicks = sortedPoints[i + 1];
-      if (endTicks - startTicks < ppq / 4) continue; // skip micro slices
+    // Build contiguous segments spanning until the next cluster onset
+    const segments: ChordSegment[] = [];
 
-      const segKey = `${startTicks}_${endTicks}`;
-      const meter = getMeterPosition(startTicks, ppq, timeSignatures);
+    for (let i = 0; i < clusters.length; i++) {
+      const cluster = clusters[i];
+      const startTicks = cluster.startTicks;
+      // Duration spans until next chord onset, or project maxTicks for the last cluster
+      const nextClusterStart = (i < clusters.length - 1) ? clusters[i + 1].startTicks : maxTicks;
+      const endTicks = Math.max(startTicks + Math.round(ppq / 2), nextClusterStart);
 
-      // Check manual override
-      const manualSeg = overrideMap.get(segKey);
-      if (manualSeg) {
-        segments.push({
-          ...manualSeg,
-          barIndex: meter.bar,
-          beatIndex: meter.beat,
-          sourceType: 'MANUAL',
-        });
-        continue;
-      }
-
-      // Find active notes in Chord Guide track
-      const activeGuideNotes = guideNotes.filter(n => Math.max(startTicks, n.startTicks) < Math.min(endTicks, n.endTicks));
-
-      if (activeGuideNotes.length > 0) {
-        const profile = new Array(12).fill(0);
-        let lowestPitch = 999;
-        let lowestPc = -1;
-
-        activeGuideNotes.forEach(n => {
-          profile[n.pitchClass] += 1.0;
-          if (n.pitch < lowestPitch) {
-            lowestPitch = n.pitch;
-            lowestPc = n.pitchClass;
-          }
-        });
-
-        const candidates = scoreChordCandidates(profile, lowestPc);
-        const best = candidates[0];
-
-        segments.push({
-          id: `seg_${startTicks}`,
-          startTicks,
-          endTicks,
-          startSeconds: startTicks / ppq * 0.5,
-          endSeconds: endTicks / ppq * 0.5,
-          barIndex: meter.bar,
-          beatIndex: meter.beat,
-          root: best.root,
-          rootName: best.rootName,
-          type: best.type,
-          typeName: best.typeName,
-          bass: best.bass,
-          bassName: best.bassName,
-          displayName: best.displayName,
-          confidence: 98, // Direct high confidence for Chord Guide
-          candidates,
-          manualOverride: false,
-          sourceType: 'GUIDE',
-        });
-      } else if (settings.harmonySourceMode === 'chord_guide_preferred') {
-        // Fallback to auto-detect for gap
-        // Build slice profile from all other tracks
-        const profile = new Array(12).fill(0);
-        let lowestBassPitch = 999;
-        let lowestBassPc = -1;
-
-        for (const note of notes) {
-          const trk = trackMap.get(note.trackId);
-          if (trk?.settings.ignore || trk?.settings.role === 'chord_guide' || trk?.settings.role === 'percussion') continue;
-          if (Math.max(startTicks, note.startTicks) < Math.min(endTicks, note.endTicks)) {
-            profile[note.pitchClass] += 1.0;
-            if (note.pitch < lowestBassPitch) {
-              lowestBassPitch = note.pitch;
-              lowestBassPc = note.pitchClass;
-            }
-          }
+      // Fill gap before first cluster if needed
+      if (i === 0 && startTicks > 0) {
+        const gapMeter = getMeterPosition(0, ppq, timeSignatures);
+        if (settings.harmonySourceMode === 'chord_guide_only') {
+          segments.push({
+            id: `seg_0`,
+            startTicks: 0,
+            endTicks: startTicks,
+            startSeconds: 0,
+            endSeconds: startTicks / ppq * 0.5,
+            barIndex: gapMeter.bar,
+            beatIndex: gapMeter.beat,
+            root: 0,
+            rootName: 'N.C.',
+            type: 'nc',
+            typeName: 'No Chord',
+            bass: 0,
+            bassName: 'N.C.',
+            displayName: 'N.C.',
+            confidence: 0,
+            candidates: [],
+            manualOverride: false,
+            sourceType: 'GUIDE',
+          });
         }
-
-        const candidates = scoreChordCandidates(profile, lowestBassPc);
-        const best = candidates[0];
-
-        segments.push({
-          id: `seg_${startTicks}`,
-          startTicks,
-          endTicks,
-          startSeconds: startTicks / ppq * 0.5,
-          endSeconds: endTicks / ppq * 0.5,
-          barIndex: meter.bar,
-          beatIndex: meter.beat,
-          root: best.root,
-          rootName: best.rootName,
-          type: best.type,
-          typeName: best.typeName,
-          bass: best.bass,
-          bassName: best.bassName,
-          displayName: best.displayName,
-          confidence: best.confidence,
-          candidates,
-          manualOverride: false,
-          sourceType: 'AUTO',
-        });
       }
+
+      const meter = getMeterPosition(startTicks, ppq, timeSignatures);
+      const profile = new Array(12).fill(0);
+      let lowestPitch = 999;
+      let lowestPc = -1;
+
+      cluster.notes.forEach(n => {
+        profile[n.pitchClass] += 1.0;
+        if (n.pitch < lowestPitch) {
+          lowestPitch = n.pitch;
+          lowestPc = n.pitchClass;
+        }
+      });
+
+      const candidates = scoreChordCandidates(profile, lowestPc);
+      const best = candidates[0];
+
+      segments.push({
+        id: `seg_${startTicks}`,
+        startTicks,
+        endTicks,
+        startSeconds: startTicks / ppq * 0.5,
+        endSeconds: endTicks / ppq * 0.5,
+        barIndex: meter.bar,
+        beatIndex: meter.beat,
+        root: best.root,
+        rootName: best.rootName,
+        type: best.type,
+        typeName: best.typeName,
+        bass: best.bass,
+        bassName: best.bassName,
+        displayName: best.displayName,
+        confidence: 98,
+        candidates,
+        manualOverride: false,
+        sourceType: 'GUIDE',
+      });
     }
 
     if (segments.length > 0) {
@@ -314,42 +324,77 @@ export function detectChords(
     }
   }
 
-  // Standard Auto-Detect Grid Mode
-  let currentTicks = 0;
-  let prevSegmentRoot: number | null = null;
-  let prevSegmentType: ChordType | null = null;
+  // -------------------------------------------------------------
+  // Phase G: Adaptive & Fixed Grid Chord Detection
+  // -------------------------------------------------------------
+  const minSegmentTicks = settings.minSegmentLength === '1/4_beat'
+    ? Math.round(ppq / 4)
+    : settings.minSegmentLength === '1_beat'
+    ? ppq
+    : Math.round(ppq / 2); // Default 1/2 beat
 
-  while (currentTicks < maxTicks) {
-    const timeSig = getTimeSignatureAtTicks(currentTicks, timeSignatures);
-    const segTicks = getTicksPerSegment(settings.resolution, ppq, timeSig);
-    const startTicks = currentTicks;
-    const endTicks = currentTicks + segTicks;
-    const segKey = `${startTicks}_${endTicks}`;
+  // Collect candidate change points
+  const changePointsSet = new Set<number>();
+  changePointsSet.add(0);
 
-    const meter = getMeterPosition(startTicks, ppq, timeSignatures);
+  if (settings.segmentationMode === 'adaptive') {
+    // Multi-track onsets & Bass changes
+    const sortedNotes = [...notes]
+      .filter(n => {
+        const trk = trackMap.get(n.trackId);
+        return trk && !trk.settings.ignore && trk.settings.role !== 'percussion' && trk.settings.role !== 'keyswitch';
+      })
+      .sort((a, b) => a.startTicks - b.startTicks);
 
-    // Check manual override
-    const manualSeg = overrideMap.get(segKey);
-    if (manualSeg) {
-      segments.push({
-        ...manualSeg,
-        barIndex: meter.bar,
-        beatIndex: meter.beat,
-        sourceType: 'MANUAL',
-      });
-      prevSegmentRoot = manualSeg.root;
-      prevSegmentType = manualSeg.type;
-      currentTicks = endTicks;
-      continue;
+    let lastTick = -9999;
+    sortedNotes.forEach(n => {
+      if (n.startTicks - lastTick >= minSegmentTicks) {
+        changePointsSet.add(n.startTicks);
+        lastTick = n.startTicks;
+      }
+    });
+
+    // Also add measure downbeats
+    let barTick = 0;
+    while (barTick < maxTicks) {
+      changePointsSet.add(barTick);
+      barTick += ppq * 4;
     }
+  } else {
+    // Fixed grid
+    let gridTick = 0;
+    while (gridTick < maxTicks) {
+      const timeSig = getTimeSignatureAtTicks(gridTick, timeSignatures);
+      const segTicks = getTicksPerSegment(settings.resolution, ppq, timeSig);
+      changePointsSet.add(gridTick);
+      gridTick += segTicks;
+    }
+  }
 
-    // Aggregate Weighted Pitch Class Profile
+  changePointsSet.add(maxTicks);
+  const changePoints = Array.from(changePointsSet).sort((a, b) => a - b);
+
+  const rawSegments: {
+    startTicks: number;
+    endTicks: number;
+    profile: number[];
+    lowestBassPc: number;
+    totalWeight: number;
+  }[] = [];
+
+  for (let i = 0; i < changePoints.length - 1; i++) {
+    const startTicks = changePoints[i];
+    const endTicks = changePoints[i + 1];
+    if (endTicks - startTicks < Math.min(120, minSegmentTicks)) continue;
+
+    const sliceTicks = endTicks - startTicks;
     const pitchProfile = new Array(12).fill(0);
     let lowestBassPitch = 999;
     let lowestBassPc = -1;
     let totalWeight = 0;
 
-    for (const note of notes) {
+    for (let j = 0; j < notes.length; j++) {
+      const note = notes[j];
       const track = trackMap.get(note.trackId);
       if (track) {
         if (track.settings.ignore) continue;
@@ -362,92 +407,130 @@ export function detectChords(
       if (overlapEnd <= overlapStart) continue;
 
       const overlapTicks = overlapEnd - overlapStart;
-      const overlapRatio = overlapTicks / segTicks;
+      const overlapRatio = overlapTicks / sliceTicks;
 
       let durWeight = getDurationWeight(note.durationTicks, ppq);
-      if (settings.minDurationTicks > 0 && note.durationTicks < settings.minDurationTicks) {
-        continue;
-      }
-      if (!settings.reduceShortNoteInfluence) {
-        durWeight = 1.0;
-      }
+      if (!settings.reduceShortNoteInfluence) durWeight = 1.0;
 
       const roleWeight = getRoleWeight(track);
       if (roleWeight <= 0) continue;
 
       const velWeight = 0.3 + 0.7 * Math.max(0, Math.min(1, note.velocity));
       const noteMeter = getMeterPosition(note.startTicks, ppq, timeSignatures);
-      const metricWeight = noteMeter.metricWeight;
+      const noteWeight = durWeight * velWeight * noteMeter.metricWeight * roleWeight * overlapRatio;
 
-      const noteWeight = durWeight * velWeight * metricWeight * roleWeight * overlapRatio;
-      const pc = note.pitchClass;
-      pitchProfile[pc] += noteWeight;
+      pitchProfile[note.pitchClass] += noteWeight;
       totalWeight += noteWeight;
 
       const isBassTrack = track?.settings.role === 'bass' || track?.settings.detectedRole === 'bass';
       if (isBassTrack) {
         if (note.pitch < lowestBassPitch) {
           lowestBassPitch = note.pitch;
-          lowestBassPc = pc;
+          lowestBassPc = note.pitchClass;
         }
       } else if (lowestBassPitch === 999 || note.pitch < lowestBassPitch) {
         lowestBassPitch = note.pitch;
-        lowestBassPc = pc;
+        lowestBassPc = note.pitchClass;
       }
     }
 
-    if (totalWeight < 0.001) {
-      const prevSeg = segments[segments.length - 1];
-      const root = prevSeg ? prevSeg.root : 0;
-      const type = prevSeg ? prevSeg.type : 'maj';
-      const bass = prevSeg ? prevSeg.bass : root;
-      const rootName = pitchClassToName(root);
-      const bassName = pitchClassToName(bass);
-      const displayName = formatChordName(root, type, bass);
+    rawSegments.push({
+      startTicks,
+      endTicks,
+      profile: pitchProfile,
+      lowestBassPc,
+      totalWeight,
+    });
+  }
 
-      segments.push({
-        id: `seg_${startTicks}`,
-        startTicks,
-        endTicks,
-        startSeconds: startTicks / ppq * 0.5,
-        endSeconds: endTicks / ppq * 0.5,
-        barIndex: meter.bar,
-        beatIndex: meter.beat,
-        root,
-        rootName,
-        type,
-        typeName: CHORD_DEFINITIONS[type].name,
-        bass,
-        bassName,
-        displayName,
-        confidence: 0,
-        candidates: [{
-          root,
-          rootName,
-          type,
-          typeName: CHORD_DEFINITIONS[type].name,
-          bass,
-          bassName,
-          displayName,
-          score: 0,
-          confidence: 0,
-        }],
-        manualOverride: false,
-        sourceType: 'AUTO',
-      });
-      currentTicks = endTicks;
+  // Merge Similar Slices using Harmonic Similarity & Hysteresis
+  const mergedSegments: typeof rawSegments = [];
+  for (let i = 0; i < rawSegments.length; i++) {
+    const curr = rawSegments[i];
+    if (mergedSegments.length === 0) {
+      mergedSegments.push({ ...curr });
       continue;
     }
 
-    const top5 = scoreChordCandidates(pitchProfile, lowestBassPc, prevSegmentRoot, prevSegmentType);
+    const prev = mergedSegments[mergedSegments.length - 1];
+    const similarity = cosineSimilarity(prev.profile, curr.profile);
+
+    // If slices have similar harmonic profile (> 0.85) or curr slice has almost no notes, merge into prev
+    if (similarity > 0.85 || curr.totalWeight < 0.05) {
+      prev.endTicks = curr.endTicks;
+      for (let p = 0; p < 12; p++) {
+        prev.profile[p] += curr.profile[p];
+      }
+      prev.totalWeight += curr.totalWeight;
+      if (prev.lowestBassPc < 0 && curr.lowestBassPc >= 0) {
+        prev.lowestBassPc = curr.lowestBassPc;
+      }
+    } else {
+      mergedSegments.push({ ...curr });
+    }
+  }
+
+  const finalSegments: ChordSegment[] = [];
+  let prevRoot: number | null = null;
+  let prevType: ChordType | null = null;
+
+  for (let i = 0; i < mergedSegments.length; i++) {
+    const seg = mergedSegments[i];
+    const meter = getMeterPosition(seg.startTicks, ppq, timeSignatures);
+
+    // Check manual override
+    const segKey = `${seg.startTicks}_${seg.endTicks}`;
+    const manualSeg = overrideMap.get(segKey);
+    if (manualSeg) {
+      finalSegments.push({
+        ...manualSeg,
+        barIndex: meter.bar,
+        beatIndex: meter.beat,
+        sourceType: 'MANUAL',
+      });
+      prevRoot = manualSeg.root;
+      prevType = manualSeg.type;
+      continue;
+    }
+
+    if (seg.totalWeight < 0.001) {
+      const fallbackRoot = prevRoot !== null ? prevRoot : 0;
+      const fallbackType = prevType !== null ? prevType : 'maj';
+      const rootName = pitchClassToName(fallbackRoot);
+      const displayName = formatChordName(fallbackRoot, fallbackType);
+
+      finalSegments.push({
+        id: `seg_${seg.startTicks}`,
+        startTicks: seg.startTicks,
+        endTicks: seg.endTicks,
+        startSeconds: seg.startTicks / ppq * 0.5,
+        endSeconds: seg.endTicks / ppq * 0.5,
+        barIndex: meter.bar,
+        beatIndex: meter.beat,
+        root: fallbackRoot,
+        rootName,
+        type: fallbackType,
+        typeName: CHORD_DEFINITIONS[fallbackType].name,
+        bass: fallbackRoot,
+        bassName: rootName,
+        displayName,
+        confidence: 0,
+        candidates: [],
+        manualOverride: false,
+        sourceType: 'AUTO',
+      });
+      continue;
+    }
+
+    const top5 = scoreChordCandidates(seg.profile, seg.lowestBassPc, prevRoot, prevType);
     const best = top5[0];
 
-    segments.push({
-      id: `seg_${startTicks}`,
-      startTicks,
-      endTicks,
-      startSeconds: startTicks / ppq * 0.5,
-      endSeconds: endTicks / ppq * 0.5,
+    finalSegments.push({
+      id: `seg_${seg.startTicks}`,
+      startTicks: seg.startTicks,
+      endTicks: seg.endTicks,
+      startSeconds: seg.startTicks / ppq * 0.5,
+      endSeconds: seg.endTicks / ppq * 0.5,
       barIndex: meter.bar,
       beatIndex: meter.beat,
       root: best.root,
@@ -463,10 +546,9 @@ export function detectChords(
       sourceType: 'AUTO',
     });
 
-    prevSegmentRoot = best.root;
-    prevSegmentType = best.type;
-    currentTicks = endTicks;
+    prevRoot = best.root;
+    prevType = best.type;
   }
 
-  return segments;
+  return finalSegments;
 }

@@ -1,10 +1,14 @@
-import { TrackRole } from './midi';
-
 export type RiskLevel = 'SAFE' | 'INFO' | 'CHECK' | 'WARNING';
 
 export type HarmonySourceType = 'AUTO' | 'GUIDE' | 'MANUAL';
 
 export type HarmonySourceMode = 'auto' | 'chord_guide_preferred' | 'chord_guide_only';
+
+export type SegmentationMode = 'adaptive' | 'fixed_grid';
+
+export type MinSegmentLength = '1/4_beat' | '1/2_beat' | '1_beat';
+
+export type AnalysisProfile = 'balanced' | 'strict' | 'film_modern' | 'jazz_extended';
 
 export type ChordType = 
   | 'maj' 
@@ -24,11 +28,21 @@ export type ChordType =
   | 'add9' 
   | 'maj9' 
   | 'min9' 
-  | 'dom9';
+  | 'dom9'
+  | 'nc'
+  | 'unknown';
+
+export interface KeyContext {
+  root: number; // 0-11
+  mode: 'major' | 'minor';
+  name: string; // e.g. "C Major", "D Minor"
+  confidence: number; // 0-100%
+  manualOverride: boolean;
+}
 
 export interface ChordCandidate {
   root: number; // 0-11
-  rootName: string; // "C", "C#", etc.
+  rootName: string; // "C", "C#", "Db" etc.
   type: ChordType;
   typeName: string; // "Major 7", "Minor", etc.
   bass: number; // 0-11
@@ -76,7 +90,11 @@ export type NonChordToneType =
   | 'chromatic_passing' 
   | 'neighbor' 
   | 'anticipation' 
-  | 'suspension';
+  | 'suspension'
+  | 'appoggiatura'
+  | 'escape_tone'
+  | 'pedal_point'
+  | 'chromatic_approach';
 
 export interface VoiceCollision {
   otherNoteId: string;
@@ -114,7 +132,7 @@ export interface NoteAnalysis {
   chordDisplayName: string;
   relation: NoteRelation;
   nonChordTone: NonChordToneType;
-  nonChordToneLabel?: string; // "Passing Tone", "Neighbor Tone", etc.
+  nonChordToneLabel?: string; // "Passing Tone", "Appoggiatura", etc.
   riskScore: number; // 0-100
   status: RiskLevel;
   reasons: string[];
@@ -134,6 +152,9 @@ export type AnalysisResolution =
   | '1_bar';
 
 export interface AnalysisSettings {
+  profile: AnalysisProfile;
+  segmentationMode: SegmentationMode;
+  minSegmentLength: MinSegmentLength;
   resolution: AnalysisResolution;
   harmonySourceMode: HarmonySourceMode;
   minDurationTicks: number;

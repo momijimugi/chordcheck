@@ -1,9 +1,9 @@
 import React from 'react';
 import { useApp } from '../state/AppContext';
-import { FileText, Layers, Music, Clock, Activity, Hash, AlertTriangle } from 'lucide-react';
+import { FileText, Layers, Music, Clock, Activity, Hash, AlertTriangle, Key } from 'lucide-react';
 
 export const ProjectInfoBanner: React.FC = () => {
-  const { workingMidi, isAnalyzing, analysisStage, analysisError, reanalyze } = useApp();
+  const { workingMidi, keyContext, isAnalyzing, analysisStage, analysisError, reanalyze } = useApp();
 
   if (!workingMidi) return null;
 
@@ -46,6 +46,14 @@ export const ProjectInfoBanner: React.FC = () => {
           <Music className="w-3 h-3 text-emerald-400" />
           <span>{workingMidi.notes.length.toLocaleString()} 音</span>
         </div>
+
+        {/* Key Context */}
+        {keyContext && (
+          <div className="flex items-center gap-1 text-teal-300 font-medium" title={`推定調性: ${keyContext.name} (確信度: ${keyContext.confidence}%)`}>
+            <Key className="w-3 h-3 text-teal-400" />
+            <span>Key: {keyContext.name} ({keyContext.confidence}%)</span>
+          </div>
+        )}
 
         {/* PPQ */}
         <div className="flex items-center gap-1" title="分解能 (Pulses Per Quarter Note)">
