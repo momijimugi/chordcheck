@@ -50,7 +50,7 @@ describe('MIDI Harmony Inspector β0.3.3 GitHub Pages Production Test Suite (Pha
 
   // Test 3: Standard Generation Export Diagnostic and Safety Mode
   it('Test 3: Standard Generation mode is assigned when no original SMF bytes exist and triggers safety warning', () => {
-    const demo = createDemoMidi('c_major_clean');
+    const demo = createDemoMidi('test1');
     // Ensure originalBytes is deleted to simulate standard generation
     delete (demo as any).originalBytes;
 
