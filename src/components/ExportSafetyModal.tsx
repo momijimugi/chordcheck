@@ -17,6 +17,8 @@ export const ExportSafetyModal: React.FC<ExportSafetyModalProps> = ({
 }) => {
   if (!isOpen || !diagnostic) return null;
 
+  const isStandardGen = diagnostic.mode === 'Standard Generation';
+
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 select-none animate-in fade-in duration-150">
       <div className="bg-[#202226] border border-amber-500/40 rounded-xl w-full max-w-md shadow-2xl p-6 text-slate-200">
@@ -24,7 +26,9 @@ export const ExportSafetyModal: React.FC<ExportSafetyModalProps> = ({
         <div className="flex items-center justify-between pb-3 border-b border-[#2e3238]">
           <div className="flex items-center gap-2 text-amber-400">
             <AlertTriangle className="w-5 h-5 shrink-0" />
-            <h3 className="font-bold text-sm text-slate-100">互換Exportの確認</h3>
+            <h3 className="font-bold text-sm text-slate-100">
+              {isStandardGen ? '標準生成Exportの確認' : '互換Exportの確認'}
+            </h3>
           </div>
           <button
             onClick={onClose}
@@ -36,12 +40,25 @@ export const ExportSafetyModal: React.FC<ExportSafetyModalProps> = ({
 
         {/* Body */}
         <div className="mt-4 space-y-3 text-xs text-slate-300">
-          <p className="leading-relaxed">
-            一部の変更ノート（<strong className="text-amber-400">{diagnostic.modifiedUnsafePatchCount}音</strong>）を元MIDIイベントへ一意に対応付けできませんでした。
-          </p>
-          <p className="text-[11px] text-slate-400 bg-[#18191c] p-3 rounded-lg border border-[#2e3238] leading-relaxed">
-            ※ 重複した同時同音ノートや未照合イベントが含まれるため、Direct Raw Byte Patchを行わず <strong>Tone.js 互換Export</strong> で書き出します。SysExやDAW固有メタデータの一部が保持されない可能性があります。
-          </p>
+          {isStandardGen ? (
+            <>
+              <p className="leading-relaxed">
+                元SMFのバイナリデータが存在しないため、新規Standard MIDIファイル（SMF）として標準生成して書き出します。
+              </p>
+              <p className="text-[11px] text-slate-400 bg-[#18191c] p-3 rounded-lg border border-[#2e3238] leading-relaxed">
+                ※ デモ楽曲や合成MIDIでは元ファイル非破壊パッチではなく、現在のトラック・ノート構成から標準的なSMFバイナリを構築して書き出します。
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="leading-relaxed">
+                一部の変更ノート（<strong className="text-amber-400">{diagnostic.modifiedUnsafePatchCount}音</strong>）を元MIDIイベントへ一意に対応付けできませんでした。
+              </p>
+              <p className="text-[11px] text-slate-400 bg-[#18191c] p-3 rounded-lg border border-[#2e3238] leading-relaxed">
+                ※ 重複した同時同音ノートや未照合イベントが含まれるため、Direct Raw Byte Patchを行わず <strong>Tone.js 互換Export</strong> で書き出します。SysExやDAW固有メタデータの一部が保持されない可能性があります。
+              </p>
+            </>
+          )}
         </div>
 
         {/* Actions */}
@@ -60,7 +77,7 @@ export const ExportSafetyModal: React.FC<ExportSafetyModalProps> = ({
             className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-xs font-semibold text-white shadow-md shadow-amber-950/40 flex items-center gap-1.5 transition"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>互換Exportを続行</span>
+            <span>{isStandardGen ? '標準Exportを続行' : '互換Exportを続行'}</span>
           </button>
         </div>
       </div>

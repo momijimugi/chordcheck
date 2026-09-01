@@ -245,7 +245,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const exportMidi = useCallback(() => {
     if (!workingMidi) return;
     const diag = getExportDiagnosticInfo(workingMidi, workingMidi.tracks);
-    if (diag.mode === 'Tone.js Fallback') {
+    if (diag.mode === 'Tone.js Fallback' || diag.mode === 'Standard Generation') {
       setExportSafetyDiag(diag);
       setIsExportSafetyModalOpen(true);
     } else {

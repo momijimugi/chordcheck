@@ -97,7 +97,7 @@ export const MainLayout: React.FC = () => {
             </div>
 
             <h1 className="text-2xl font-black text-white mb-2 tracking-wide">
-              MIDI Harmony Inspector <span className="text-xs uppercase font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">β0.2</span>
+              MIDI Harmony Inspector <span className="text-xs uppercase font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">β0.3.3</span>
             </h1>
             <p className="text-sm text-slate-400 max-w-md mx-auto mb-8">
               複数トラックMIDIの和声スペルチェッカー＆リンター。コード進行を自動推定し、コード外音や衝突を検出。DAW用に安全に修正・書き出しできます。
@@ -146,10 +146,10 @@ export const MainLayout: React.FC = () => {
               </div>
             </div>
 
-            {/* Privacy Guarantee Note */}
+            {/* Privacy Guarantee Note (Phase G / Section 27) */}
             <div className="mt-8 pt-4 border-t border-[#2e3238] flex items-center justify-center gap-2 text-xs text-slate-500">
               <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
-              <span>完全ブラウザ内ローカル処理。MIDIデータが外部サーバーへ送信されることは一切ありません。</span>
+              <span>MIDIファイルはブラウザ内で処理され、サーバーへアップロードされません。</span>
             </div>
           </div>
         </div>
