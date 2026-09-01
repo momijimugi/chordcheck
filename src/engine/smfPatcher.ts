@@ -1,5 +1,5 @@
 /**
- * Standard MIDI File (SMF) Low-level Byte Patcher
+ * Standard MIDI File (SMF) Low-level Byte Patcher (Phase O)
  * Scans raw MIDI bytes and extracts exact byte offsets of Note On / Note Off pitch bytes,
  * enabling zero-reconstruction, 100% byte-identical non-destructive export.
  */
@@ -8,10 +8,12 @@ export interface SMFNoteOffset {
   trackIndex: number;
   channel: number;
   pitch: number;
+  velocity: number;
   startTicks: number;
   durationTicks: number;
   noteOnPitchByteOffset: number;
   noteOffPitchByteOffset: number;
+  isAmbiguous?: boolean;
 }
 
 export function parseSMFNoteOffsets(bytes: Uint8Array): SMFNoteOffset[] {
@@ -40,8 +42,8 @@ export function parseSMFNoteOffsets(bytes: Uint8Array): SMFNoteOffset[] {
     let runningStatus = 0;
     let trackTicks = 0;
 
-    // Active NoteOn stack per channel + pitch: Map<`${channel}_${pitch}`, Array<{ ticks, keyByteOffset }>>
-    const activeNoteOns = new Map<string, Array<{ ticks: number; keyByteOffset: number; pitch: number }>>();
+    // Active NoteOn stack per channel + pitch: Map<`${channel}_${pitch}`, Array<{ ticks, keyByteOffset, vel }>>
+    const activeNoteOns = new Map<string, Array<{ ticks: number; keyByteOffset: number; pitch: number; vel: number }>>();
 
     while (p < trackEnd && p < bytes.length) {
       // Read Variable Length Quantity (delta-time)
@@ -82,6 +84,7 @@ export function parseSMFNoteOffsets(bytes: Uint8Array): SMFNoteOffset[] {
             ticks: trackTicks,
             keyByteOffset,
             pitch: key,
+            vel,
           });
         } else {
           // Note On with velocity 0 is Note Off
@@ -93,6 +96,7 @@ export function parseSMFNoteOffsets(bytes: Uint8Array): SMFNoteOffset[] {
               trackIndex,
               channel,
               pitch: key,
+              velocity: on.vel,
               startTicks: on.ticks,
               durationTicks: Math.max(1, trackTicks - on.ticks),
               noteOnPitchByteOffset: on.keyByteOffset,
@@ -113,6 +117,7 @@ export function parseSMFNoteOffsets(bytes: Uint8Array): SMFNoteOffset[] {
             trackIndex,
             channel,
             pitch: key,
+            velocity: on.vel,
             startTicks: on.ticks,
             durationTicks: Math.max(1, trackTicks - on.ticks),
             noteOnPitchByteOffset: on.keyByteOffset,
@@ -146,6 +151,27 @@ export function parseSMFNoteOffsets(bytes: Uint8Array): SMFNoteOffset[] {
     pos = trackEnd;
     trackIndex++;
   }
+
+  // Ambiguity Detection: Check for duplicate simultaneous notes on same track & pitch (Phase O)
+  const offsetGroups = new Map<string, SMFNoteOffset[]>();
+  noteOffsets.forEach(off => {
+    const key = `${off.trackIndex}_${off.channel}_${off.pitch}_${off.startTicks}`;
+    if (!offsetGroups.has(key)) offsetGroups.set(key, []);
+    offsetGroups.get(key)!.push(off);
+  });
+
+  offsetGroups.forEach(group => {
+    if (group.length > 1) {
+      // Check if durations are also identical -> truly ambiguous
+      const firstDur = group[0].durationTicks;
+      const allSameDur = group.every(g => Math.abs(g.durationTicks - firstDur) <= 2);
+      if (allSameDur) {
+        group.forEach(g => {
+          g.isAmbiguous = true;
+        });
+      }
+    }
+  });
 
   return noteOffsets;
 }

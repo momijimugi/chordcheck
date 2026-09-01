@@ -170,4 +170,5 @@ export interface AnalysisSettings {
   unknownChromaticPenalty: number;
   unresolvedPenalty: number;
   collisionPenalty: number;
+  keyOverride?: { root: number; mode: 'major' | 'minor' } | 'auto';
 }

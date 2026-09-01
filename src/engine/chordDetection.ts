@@ -1,75 +1,86 @@
-import { AnalysisResolution, AnalysisSettings, ChordCandidate, ChordSegment, ChordType } from '../types/analysis';
-import { NoteData, TrackData, TimeSignatureInfo } from '../types/midi';
-import { CHORD_DEFINITIONS, ALL_CHORD_TYPES, formatChordName } from '../music/chords';
+import {
+  ALL_CHORD_TYPES,
+  CHORD_DEFINITIONS,
+  formatChordName,
+} from '../music/chords';
 import { CHORD_TEMPLATES } from './chordTemplates';
 import { pitchClassToName } from '../music/pitch';
-import { getMeterPosition, getTimeSignatureAtTicks } from '../music/meter';
+import {
+  AnalysisResolution,
+  AnalysisSettings,
+  ChordCandidate,
+  ChordSegment,
+  ChordType,
+  KeyContext,
+} from '../types/analysis';
+import { NoteData, TimeSignatureInfo, TrackData } from '../types/midi';
+import {
+  buildMeterMap,
+  getBarStartTicks,
+  getMeterPosition,
+  getTimeSignatureAtTicks,
+} from '../music/meter';
+import { getKeyCompatibilityBonus } from '../music/keyDetection';
 
-export function getDurationWeight(durationTicks: number, ppq: number): number {
-  const ratio = durationTicks / ppq;
-  if (ratio < 0.0625) return 0.05; // < 1/64
-  if (ratio < 0.125) return 0.15;  // 1/32
-  if (ratio < 0.25) return 0.35;   // 1/16
-  if (ratio < 0.5) return 0.65;    // 1/8
-  return 1.0;                      // >= 1/4
+function getDurationWeight(durationTicks: number, ppq: number): number {
+  const beats = durationTicks / ppq;
+  if (beats < 0.25) return 0.2; // 16th note or shorter
+  if (beats < 0.5) return 0.5; // 8th note
+  if (beats < 1.0) return 0.8; // dotted 8th / quarter
+  if (beats <= 2.0) return 1.0; // 1-2 beats
+  return 1.2; // sustained chord
 }
 
-export function getRoleWeight(track?: TrackData): number {
+function getRoleWeight(track?: TrackData): number {
   if (!track) return 1.0;
-  const role = track.settings.role === 'auto' ? (track.settings.detectedRole || 'auto') : track.settings.role;
-  
-  if (track.settings.ignore) return 0;
-  switch (role) {
-    case 'bass': return 1.5;
-    case 'harmony': return 1.1;
-    case 'melody': return 0.6;
-    case 'chord_guide': return 0; // Chord Guide is evaluated directly
-    case 'percussion': return 0;
-    case 'keyswitch': return 0;
-    case 'ignore': return 0;
-    case 'auto':
-    default:
-      return 1.0;
-  }
+  const role = track.settings.role;
+  if (role === 'chord_guide') return 2.0;
+  if (role === 'bass') return 1.2;
+  if (role === 'harmony') return 1.1;
+  if (role === 'melody') return 0.9;
+  if (role === 'percussion' || role === 'keyswitch' || role === 'ignore') return 0;
+  return 1.0;
 }
 
-export function getTicksPerSegment(
-  resolution: AnalysisResolution,
-  ppq: number,
-  timeSig: { numerator: number; denominator: number }
-): number {
-  const beatTicks = ppq * (4 / timeSig.denominator);
+function getTicksPerSegment(resolution: AnalysisResolution, ppq: number, timeSignature: { numerator: number; denominator: number }): number {
   switch (resolution) {
-    case '1/4_beat': return Math.max(1, Math.round(beatTicks / 4));
-    case '1/2_beat': return Math.max(1, Math.round(beatTicks / 2));
-    case '1_beat': return beatTicks;
-    case '2_beats': return beatTicks * 2;
-    case '1_bar': return beatTicks * timeSig.numerator;
-    default: return beatTicks;
+    case '1/4_beat':
+      return Math.round(ppq / 4);
+    case '1/2_beat':
+      return Math.round(ppq / 2);
+    case '1_beat':
+      return ppq;
+    case '2_beats':
+      return ppq * 2;
+    case '1_bar':
+      return ppq * (4 / timeSignature.denominator) * timeSignature.numerator;
+    default:
+      return ppq;
   }
 }
 
-export function cosineSimilarity(v1: number[], v2: number[]): number {
+function cosineSimilarity(vec1: number[], vec2: number[]): number {
   let dot = 0;
   let mag1 = 0;
   let mag2 = 0;
   for (let i = 0; i < 12; i++) {
-    dot += v1[i] * v2[i];
-    mag1 += v1[i] * v1[i];
-    mag2 += v2[i] * v2[i];
+    dot += vec1[i] * vec2[i];
+    mag1 += vec1[i] * vec1[i];
+    mag2 += vec2[i] * vec2[i];
   }
   if (mag1 === 0 || mag2 === 0) return 0;
   return dot / (Math.sqrt(mag1) * Math.sqrt(mag2));
 }
 
 /**
- * Evaluates candidate chords for a given pitch profile and lowest bass pitch
+ * Evaluates candidate chords for a given pitch profile, lowest bass pitch, and key context
  */
 export function scoreChordCandidates(
   pitchProfile: number[],
   lowestBassPc: number,
   prevRoot: number | null = null,
-  prevType: ChordType | null = null
+  prevType: ChordType | null = null,
+  keyContext?: KeyContext
 ): ChordCandidate[] {
   const candidates: ChordCandidate[] = [];
 
@@ -127,12 +138,17 @@ export function scoreChordCandidates(
         score += 0.8;
       }
 
-      // 5. Complexity weighting
+      // 5. Key compatibility tie-breaker bonus (Phase H)
+      if (keyContext) {
+        score += getKeyCompatibilityBonus(root, chordType, keyContext);
+      }
+
+      // 6. Complexity weighting
       if (chordType === 'sus2' || chordType === 'sus4') {
         score -= 0.6;
       } else if (chordType === 'dim' || chordType === 'aug') {
         score -= 0.4;
-      } else if (chordType.length >= 3 && def.intervals.length >= 4) {
+      } else if (def.intervals.length >= 4) {
         const hasExtension = def.intervals.slice(3).some(inv => pitchProfile[(root + inv) % 12] > 0.1);
         if (!hasExtension) {
           score -= 1.2;
@@ -181,7 +197,8 @@ export function detectChords(
   totalDurationTicks: number,
   timeSignatures: TimeSignatureInfo[],
   settings: AnalysisSettings,
-  existingSegments: ChordSegment[] = []
+  existingSegments: ChordSegment[] = [],
+  keyContext?: KeyContext
 ): ChordSegment[] {
   const trackMap = new Map<number, TrackData>();
   for (const t of tracks) {
@@ -199,6 +216,7 @@ export function detectChords(
   const chordGuideTrack = tracks.find(t => t.settings.role === 'chord_guide' && t.notes.length > 0);
   const useChordGuide = (settings.harmonySourceMode === 'chord_guide_only' || settings.harmonySourceMode === 'chord_guide_preferred') && chordGuideTrack;
   const maxTicks = Math.max(totalDurationTicks, ppq * 4);
+  const meterMap = buildMeterMap(timeSignatures, ppq, maxTicks);
 
   // -------------------------------------------------------------
   // Phase C: Hardened Chord Guide Processing with Onset Clustering
@@ -207,7 +225,6 @@ export function detectChords(
     const sortedGuideNotes = [...chordGuideTrack.notes].sort((a, b) => a.startTicks - b.startTicks);
     const clusterTolerance = Math.max(30, Math.round(ppq / 64)); // ~30 ticks
 
-    // Group guide notes into onset clusters
     interface ChordCluster {
       startTicks: number;
       endTicks: number;
@@ -250,7 +267,6 @@ export function detectChords(
     for (let i = 0; i < clusters.length; i++) {
       const cluster = clusters[i];
       const startTicks = cluster.startTicks;
-      // Duration spans until next chord onset, or project maxTicks for the last cluster
       const nextClusterStart = (i < clusters.length - 1) ? clusters[i + 1].startTicks : maxTicks;
       const endTicks = Math.max(startTicks + Math.round(ppq / 2), nextClusterStart);
 
@@ -294,7 +310,7 @@ export function detectChords(
         }
       });
 
-      const candidates = scoreChordCandidates(profile, lowestPc);
+      const candidates = scoreChordCandidates(profile, lowestPc, null, null, keyContext);
       const best = candidates[0];
 
       segments.push({
@@ -325,7 +341,7 @@ export function detectChords(
   }
 
   // -------------------------------------------------------------
-  // Phase G: Adaptive & Fixed Grid Chord Detection
+  // Phase G & I: Adaptive & Fixed Grid Chord Detection with Spatial Buckets
   // -------------------------------------------------------------
   const minSegmentTicks = settings.minSegmentLength === '1/4_beat'
     ? Math.round(ppq / 4)
@@ -333,33 +349,56 @@ export function detectChords(
     ? ppq
     : Math.round(ppq / 2); // Default 1/2 beat
 
+  // Pre-filter harmonic notes (Phase I: Fast bucket indexing)
+  const harmonicNotes = notes.filter(n => {
+    const trk = trackMap.get(n.trackId);
+    if (!trk || trk.settings.ignore) return false;
+    if (
+      trk.settings.role === 'ignore' ||
+      trk.settings.role === 'keyswitch' ||
+      trk.settings.role === 'percussion' ||
+      trk.settings.role === 'chord_guide'
+    ) {
+      return false;
+    }
+    if (n.pitch < trk.settings.analysisMinPitch || n.pitch > trk.settings.analysisMaxPitch) {
+      return false;
+    }
+    return true;
+  });
+
+  // Build temporal bucket index for harmonic notes (1 bucket = 1/2 beat)
+  const harmonicBucketSize = Math.max(120, Math.round(ppq / 2));
+  const harmonicBuckets = new Map<number, NoteData[]>();
+
+  harmonicNotes.forEach(n => {
+    const sb = Math.floor(n.startTicks / harmonicBucketSize);
+    const eb = Math.floor(n.endTicks / harmonicBucketSize);
+    for (let b = sb; b <= eb; b++) {
+      if (!harmonicBuckets.has(b)) harmonicBuckets.set(b, []);
+      harmonicBuckets.get(b)!.push(n);
+    }
+  });
+
   // Collect candidate change points
   const changePointsSet = new Set<number>();
   changePointsSet.add(0);
 
   if (settings.segmentationMode === 'adaptive') {
     // Multi-track onsets & Bass changes
-    const sortedNotes = [...notes]
-      .filter(n => {
-        const trk = trackMap.get(n.trackId);
-        return trk && !trk.settings.ignore && trk.settings.role !== 'percussion' && trk.settings.role !== 'keyswitch';
-      })
-      .sort((a, b) => a.startTicks - b.startTicks);
+    const sortedHarmonic = [...harmonicNotes].sort((a, b) => a.startTicks - b.startTicks);
 
     let lastTick = -9999;
-    sortedNotes.forEach(n => {
+    sortedHarmonic.forEach(n => {
       if (n.startTicks - lastTick >= minSegmentTicks) {
         changePointsSet.add(n.startTicks);
         lastTick = n.startTicks;
       }
     });
 
-    // Also add measure downbeats
-    let barTick = 0;
-    while (barTick < maxTicks) {
-      changePointsSet.add(barTick);
-      barTick += ppq * 4;
-    }
+    // Phase C: Dynamically add real Bar Start ticks from meterMap (NOT hardcoded 4/4!)
+    const barStarts = getBarStartTicks(meterMap, maxTicks);
+    barStarts.forEach(tick => changePointsSet.add(tick));
   } else {
     // Fixed grid
     let gridTick = 0;
@@ -393,44 +432,51 @@ export function detectChords(
     let lowestBassPc = -1;
     let totalWeight = 0;
 
-    for (let j = 0; j < notes.length; j++) {
-      const note = notes[j];
-      const track = trackMap.get(note.trackId);
-      if (track) {
-        if (track.settings.ignore) continue;
-        if (track.settings.role === 'ignore' || track.settings.role === 'keyswitch' || track.settings.role === 'percussion' || track.settings.role === 'chord_guide') continue;
-        if (note.pitch < track.settings.analysisMinPitch || note.pitch > track.settings.analysisMaxPitch) continue;
-      }
+    // Fast bucket query for slice
+    const startBucket = Math.floor(startTicks / harmonicBucketSize);
+    const endBucket = Math.floor(endTicks / harmonicBucketSize);
+    const sliceNotesSeen = new Set<string>();
 
-      const overlapStart = Math.max(startTicks, note.startTicks);
-      const overlapEnd = Math.min(endTicks, note.endTicks);
-      if (overlapEnd <= overlapStart) continue;
+    for (let b = startBucket; b <= endBucket; b++) {
+      const bucketNotes = harmonicBuckets.get(b);
+      if (!bucketNotes) continue;
 
-      const overlapTicks = overlapEnd - overlapStart;
-      const overlapRatio = overlapTicks / sliceTicks;
+      for (let k = 0; k < bucketNotes.length; k++) {
+        const note = bucketNotes[k];
+        if (sliceNotesSeen.has(note.id)) continue;
+        sliceNotesSeen.add(note.id);
 
-      let durWeight = getDurationWeight(note.durationTicks, ppq);
-      if (!settings.reduceShortNoteInfluence) durWeight = 1.0;
+        const overlapStart = Math.max(startTicks, note.startTicks);
+        const overlapEnd = Math.min(endTicks, note.endTicks);
+        if (overlapEnd <= overlapStart) continue;
 
-      const roleWeight = getRoleWeight(track);
-      if (roleWeight <= 0) continue;
+        const track = trackMap.get(note.trackId);
+        const overlapTicks = overlapEnd - overlapStart;
+        const overlapRatio = overlapTicks / sliceTicks;
 
-      const velWeight = 0.3 + 0.7 * Math.max(0, Math.min(1, note.velocity));
-      const noteMeter = getMeterPosition(note.startTicks, ppq, timeSignatures);
-      const noteWeight = durWeight * velWeight * noteMeter.metricWeight * roleWeight * overlapRatio;
+        let durWeight = getDurationWeight(note.durationTicks, ppq);
+        if (!settings.reduceShortNoteInfluence) durWeight = 1.0;
 
-      pitchProfile[note.pitchClass] += noteWeight;
-      totalWeight += noteWeight;
+        const roleWeight = getRoleWeight(track);
+        if (roleWeight <= 0) continue;
 
-      const isBassTrack = track?.settings.role === 'bass' || track?.settings.detectedRole === 'bass';
-      if (isBassTrack) {
-        if (note.pitch < lowestBassPitch) {
+        const velWeight = 0.3 + 0.7 * Math.max(0, Math.min(1, note.velocity));
+        const noteMeter = getMeterPosition(note.startTicks, ppq, timeSignatures);
+        const noteWeight = durWeight * velWeight * noteMeter.metricWeight * roleWeight * overlapRatio;
+
+        pitchProfile[note.pitchClass] += noteWeight;
+        totalWeight += noteWeight;
+
+        const isBassTrack = track?.settings.role === 'bass' || track?.settings.detectedRole === 'bass';
+        if (isBassTrack) {
+          if (note.pitch < lowestBassPitch) {
+            lowestBassPitch = note.pitch;
+            lowestBassPc = note.pitchClass;
+          }
+        } else if (lowestBassPitch === 999 || note.pitch < lowestBassPitch) {
           lowestBassPitch = note.pitch;
           lowestBassPc = note.pitchClass;
         }
-      } else if (lowestBassPitch === 999 || note.pitch < lowestBassPitch) {
-        lowestBassPitch = note.pitch;
-        lowestBassPc = note.pitchClass;
       }
     }
 
@@ -522,7 +568,7 @@ export function detectChords(
       continue;
     }
 
-    const top5 = scoreChordCandidates(seg.profile, seg.lowestBassPc, prevRoot, prevType);
+    const top5 = scoreChordCandidates(seg.profile, seg.lowestBassPc, prevRoot, prevType, keyContext);
     const best = top5[0];
 
     finalSegments.push({

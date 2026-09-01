@@ -1,5 +1,5 @@
-import { KeyContext } from '../types/analysis';
-import { NoteData } from '../types/midi';
+import { ChordType, KeyContext } from '../types/analysis';
+import { MidiData, NoteData } from '../types/midi';
 import { PITCH_NAMES, PITCH_NAMES_FLAT } from '../utils/constants';
 
 // Krumhansl-Schmuckler Key Profiles
@@ -9,6 +9,29 @@ const MINOR_PROFILE = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.6
 // Flat-preferring root pitch classes
 const FLAT_MAJOR_ROOTS = [5, 10, 3, 8, 1]; // F (5), Bb (10), Eb (3), Ab (8), Db (1)
 const FLAT_MINOR_ROOTS = [2, 7, 0, 5, 10]; // D (2), G (7), C (0), F (5), Bb (10)
+
+// Diatonic Triads & 7ths offsets from Key Root
+// Major: I, ii, iii, IV, V, vi, vii°
+const MAJOR_DIATONIC_CHORDS: Array<{ offset: number; types: ChordType[] }> = [
+  { offset: 0, types: ['maj', 'maj7', '6', 'add9', 'maj9'] },
+  { offset: 2, types: ['min', 'min7', 'min9', 'min6'] },
+  { offset: 4, types: ['min', 'min7'] },
+  { offset: 5, types: ['maj', 'maj7', '6', 'add9', 'maj9'] },
+  { offset: 7, types: ['maj', 'dom7', 'dom9', 'sus4', 'sus2'] },
+  { offset: 9, types: ['min', 'min7', 'min9'] },
+  { offset: 11, types: ['dim', 'm7b5', 'dim7'] },
+];
+
+// Natural Minor: i, ii°, III, iv, v, VI, VII
+const MINOR_DIATONIC_CHORDS: Array<{ offset: number; types: ChordType[] }> = [
+  { offset: 0, types: ['min', 'min7', 'mMaj7', 'min9', 'min6'] },
+  { offset: 2, types: ['dim', 'm7b5'] },
+  { offset: 3, types: ['maj', 'maj7', '6', 'add9'] },
+  { offset: 5, types: ['min', 'min7', 'min9'] },
+  { offset: 7, types: ['min', 'min7', 'dom7', 'maj', 'dom9'] }, // including harmonic minor V7
+  { offset: 8, types: ['maj', 'maj7'] },
+  { offset: 10, types: ['maj', 'dom7'] },
+];
 
 function correlation(v1: number[], v2: number[]): number {
   const n = v1.length;
@@ -31,15 +54,44 @@ function correlation(v1: number[], v2: number[]): number {
   return numerator / Math.sqrt(denom1 * denom2);
 }
 
-export function detectKeyFromNotes(notes: NoteData[]): KeyContext {
+/**
+ * Filter notes suitable for Key Detection (Phase D)
+ * Excludes percussion, keyswitch, ignore tracks, and chord guides
+ */
+export function getNotesForKeyDetection(midiData: MidiData): NoteData[] {
+  const trackMap = new Map<number, (typeof midiData.tracks)[0]>();
+  midiData.tracks.forEach(t => trackMap.set(t.id, t));
+
+  return midiData.notes.filter(n => {
+    const track = trackMap.get(n.trackId);
+    if (!track) return false;
+    if (track.settings.ignore) return false;
+    if (
+      track.settings.role === 'percussion' ||
+      track.settings.role === 'keyswitch' ||
+      track.settings.role === 'ignore' ||
+      track.settings.role === 'chord_guide'
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
+/**
+ * Detects Key from notes with PPQ normalization (Phase E)
+ */
+export function detectKeyFromNotes(notes: NoteData[], ppq: number = 480): KeyContext {
   if (notes.length === 0) {
     return { root: 0, mode: 'major', name: 'C Major', confidence: 50, manualOverride: false };
   }
 
-  // Build weighted pitch class histogram
+  const safePpq = Math.max(1, ppq);
+
+  // Build weighted pitch class histogram using normalized duration (durationTicks / ppq)
   const histogram = new Array(12).fill(0);
   notes.forEach(n => {
-    histogram[n.pitchClass] += Math.max(0.1, n.durationTicks / 480);
+    histogram[n.pitchClass] += Math.max(0.1, n.durationTicks / safePpq);
   });
 
   const candidates: { root: number; mode: 'major' | 'minor'; score: number }[] = [];
@@ -76,6 +128,33 @@ export function detectKeyFromNotes(notes: NoteData[]): KeyContext {
     confidence,
     manualOverride: false,
   };
+}
+
+/**
+ * Key Compatibility Bonus for chord scoring (Phase H)
+ * Gentle tie-breaker (+0.2 ~ +0.4) that does NOT exclude chromatic or borrowed chords
+ */
+export function getKeyCompatibilityBonus(root: number, type: ChordType, keyContext?: KeyContext): number {
+  if (!keyContext) return 0;
+
+  const rootDiff = ((root - keyContext.root) % 12 + 12) % 12;
+  const chordSet = keyContext.mode === 'major' ? MAJOR_DIATONIC_CHORDS : MINOR_DIATONIC_CHORDS;
+
+  const match = chordSet.find(c => c.offset === rootDiff);
+  if (match && match.types.includes(type)) {
+    // Primary tonic or dominant triad gets slightly higher bonus
+    if (rootDiff === 0 || rootDiff === 7) return 0.4;
+    return 0.25;
+  }
+
+  return 0;
+}
+
+/**
+ * Key-aware Pitch Formatter for all UI components (Phase G)
+ */
+export function formatPitchName(pitch: number, keyContext?: KeyContext): string {
+  return getEnharmonicPitchName(pitch, keyContext);
 }
 
 export function getEnharmonicPitchName(pitch: number, keyContext?: KeyContext): string {

@@ -11,6 +11,7 @@ export interface AnalysisContext {
   noteToTrackIndex: Map<string, number>;
   temporalNoteBuckets: Map<number, NoteData[]>; // bucket index: Math.floor(ticks / ppq)
   segments: ChordSegment[];
+  segmentIdToIndex: Map<string, number>;
 }
 
 export function buildAnalysisContext(
@@ -54,6 +55,12 @@ export function buildAnalysisContext(
     }
   });
 
+  const sortedSegments = [...segments].sort((a, b) => a.startTicks - b.startTicks);
+  const segmentIdToIndex = new Map<string, number>();
+  sortedSegments.forEach((seg, idx) => {
+    segmentIdToIndex.set(seg.id, idx);
+  });
+
   return {
     ppq,
     timeSignatures,
@@ -62,7 +69,8 @@ export function buildAnalysisContext(
     sortedTrackNotes,
     noteToTrackIndex,
     temporalNoteBuckets,
-    segments: [...segments].sort((a, b) => a.startTicks - b.startTicks),
+    segments: sortedSegments,
+    segmentIdToIndex,
   };
 }
 
@@ -131,6 +139,22 @@ export function findSegmentAtTicksFast(
   // Fallback to nearest segment
   if (ticks < segments[0].startTicks) return segments[0];
   return segments[segments.length - 1];
+}
+
+/**
+ * Fast O(1) lookup for adjacent previous and next chord segments
+ */
+export function getAdjacentSegmentsFast(
+  context: AnalysisContext,
+  segmentId: string
+): { prevSegment?: ChordSegment; nextSegment?: ChordSegment } {
+  const idx = context.segmentIdToIndex.get(segmentId);
+  if (idx === undefined) return {};
+
+  const prevSegment = idx > 0 ? context.segments[idx - 1] : undefined;
+  const nextSegment = idx < context.segments.length - 1 ? context.segments[idx + 1] : undefined;
+
+  return { prevSegment, nextSegment };
 }
 
 /**

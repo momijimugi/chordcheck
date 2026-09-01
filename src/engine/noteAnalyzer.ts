@@ -3,7 +3,10 @@ import { MidiData } from '../types/midi';
 import { detectChords } from './chordDetection';
 import { calculateNoteRisk } from './riskScoring';
 import { generateNoteSuggestions } from './suggestionEngine';
-import { buildAnalysisContext, findSegmentAtTicksFast } from './analysisContext';
+import { buildAnalysisContext, findSegmentAtTicksFast, getAdjacentSegmentsFast } from './analysisContext';
+
+import { detectKeyFromNotes, getNotesForKeyDetection } from '../music/keyDetection';
+import { PITCH_NAMES, PITCH_NAMES_FLAT } from '../utils/constants';
 
 export interface FullAnalysisResult {
   segments: ChordSegment[];
@@ -22,6 +25,23 @@ export function analyzeMidi(
   settings: AnalysisSettings,
   existingSegments: ChordSegment[] = []
 ): FullAnalysisResult {
+  // 0. Resolve Key Context (Phase D, E, F)
+  let keyContext = undefined;
+  if (settings.keyOverride && settings.keyOverride !== 'auto') {
+    const rootStr = PITCH_NAMES[settings.keyOverride.root];
+    const modeStr = settings.keyOverride.mode === 'major' ? 'Major' : 'Minor';
+    keyContext = {
+      root: settings.keyOverride.root,
+      mode: settings.keyOverride.mode,
+      name: `${rootStr} ${modeStr}`,
+      confidence: 100,
+      manualOverride: true,
+    };
+  } else {
+    const keyNotes = getNotesForKeyDetection(midiData);
+    keyContext = detectKeyFromNotes(keyNotes, midiData.ppq);
+  }
+
   // 1. Detect chords across timeline
   const segments = detectChords(
     midiData.notes,
@@ -30,7 +50,8 @@ export function analyzeMidi(
     midiData.durationTicks,
     midiData.timeSignatures,
     settings,
-    existingSegments
+    existingSegments,
+    keyContext
   );
 
   // 2. Build High-Performance AnalysisContext
@@ -135,9 +156,7 @@ export function analyzeMidi(
       continue;
     }
 
-    const segIndex = segments.findIndex(s => s.id === currentSegment.id);
-    const prevSegment = segIndex > 0 ? segments[segIndex - 1] : undefined;
-    const nextSegment = segIndex >= 0 && segIndex < segments.length - 1 ? segments[segIndex + 1] : undefined;
+    const { prevSegment, nextSegment } = getAdjacentSegmentsFast(context, currentSegment.id);
 
     // Evaluate risk with O(1) context
     const noteAnalysis = calculateNoteRisk(

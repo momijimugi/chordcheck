@@ -2,6 +2,7 @@ import React from 'react';
 import { useApp } from '../state/AppContext';
 import { RISK_COLORS } from '../utils/constants';
 import { audioSynth } from '../engine/audioSynth';
+import { formatPitchName } from '../music/keyDetection';
 import { 
   Volume2, 
   Sparkles, 
@@ -22,6 +23,7 @@ export const Inspector: React.FC = () => {
     workingMidi,
     selectedNoteId,
     analyses,
+    keyContext,
     modifyNotePitch,
   } = useApp();
 
@@ -46,6 +48,7 @@ export const Inspector: React.FC = () => {
   }
 
   const riskConfig = RISK_COLORS[analysis.status];
+  const formattedPitchName = formatPitchName(analysis.pitch, keyContext);
 
   const handleAudition = (pitch: number) => {
     audioSynth.playNote(pitch, 0.5, 0.85);
@@ -65,7 +68,7 @@ export const Inspector: React.FC = () => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-2xl font-black text-white tracking-tight">
-              {analysis.pitchName}
+              {formattedPitchName}
             </span>
             <span className="text-xs text-slate-400 font-mono">
               (MIDI {analysis.pitch})
@@ -186,7 +189,7 @@ export const Inspector: React.FC = () => {
         </div>
       </div>
 
-      {/* Categorized Analysis Reasons (Section 31) */}
+      {/* Categorized Analysis Reasons */}
       <div className="p-4 space-y-2.5">
         <h4 className="font-bold text-slate-300 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
           <HelpCircle className="w-3.5 h-3.5 text-slate-400" />
@@ -267,6 +270,8 @@ export const Inspector: React.FC = () => {
           <div className="space-y-1.5 mt-2">
             {analysis.suggestions.map((sug, idx) => {
               const isCurrentPitch = sug.pitch === analysis.pitch;
+              const formattedSugPitch = formatPitchName(sug.pitch, keyContext);
+
               return (
                 <div
                   key={idx}
@@ -286,7 +291,7 @@ export const Inspector: React.FC = () => {
                     </button>
                     <div>
                       <div className="flex items-center gap-1.5">
-                        <span className="font-bold text-xs text-slate-100">{sug.pitchName}</span>
+                        <span className="font-bold text-xs text-slate-100">{formattedSugPitch}</span>
                         <span className="text-[10px] text-slate-400 font-mono">
                           ({sug.diffSemitones > 0 ? `+${sug.diffSemitones}` : sug.diffSemitones} 半音)
                         </span>

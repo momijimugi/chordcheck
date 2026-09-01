@@ -43,6 +43,7 @@ export interface AppState {
   playheadTicks: number;
   // Loading and analysis state
   isAnalyzing: boolean;
+  analysisProgress: number; // 0 to 100
   analysisStage: string;
   analysisError: string | null;
   // UI states

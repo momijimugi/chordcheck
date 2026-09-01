@@ -2,16 +2,17 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { AppState, ColorMode, FilterType, HistoryState } from '../types/state';
 import { AnalysisSettings, ChordCandidate, ChordSegment, ChordType, KeyContext, NoteAnalysis } from '../types/analysis';
 import { MidiData, NoteData, RangePreset, TrackData, TrackRole } from '../types/midi';
-import { DEFAULT_ANALYSIS_SETTINGS } from '../utils/constants';
+import { DEFAULT_ANALYSIS_SETTINGS, PITCH_NAMES } from '../utils/constants';
 import { parseMidiFile } from '../engine/midiParser';
 import { exportMidiFile } from '../engine/midiExporter';
-import { analyzeMidi } from '../engine/noteAnalyzer';
 import { createDemoMidi, DemoCaseId } from '../utils/demoMidi';
 import { downloadMidiFile } from '../utils/download';
 import { audioSynth } from '../engine/audioSynth';
 import { pitchToName, getPitchClass, getOctave } from '../music/pitch';
 import { getPitchRangeForPreset } from '../engine/keyswitchDetection';
-import { detectKeyFromNotes } from '../music/keyDetection';
+import { detectKeyFromNotes, getNotesForKeyDetection } from '../music/keyDetection';
+import { getTempoAtTicks } from '../music/meter';
+import { harmonyWorkerBridge } from '../workers/harmonyWorkerBridge';
 
 interface AppContextValue extends AppState {
   loadMidiFile: (file: File) => Promise<void>;
@@ -28,6 +29,7 @@ interface AppContextValue extends AppState {
   toggleTrackVisibility: (trackId: number) => void;
   toggleTrackIgnore: (trackId: number) => void;
   updateAnalysisSettings: (settings: Partial<AnalysisSettings>) => void;
+  setKeyOverride: (keyOverride: { root: number; mode: 'major' | 'minor' } | 'auto') => void;
   reanalyze: () => void;
   undo: () => void;
   redo: () => void;
@@ -80,8 +82,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [playheadTicks, setPlayheadTicks] = useState<number>(0);
 
-  // Analysis progress & decoupled error state
+  // Analysis progress & Worker state (Phase A)
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [analysisProgress, setAnalysisProgress] = useState<number>(0);
   const [analysisStage, setAnalysisStage] = useState<string>('');
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
@@ -94,11 +97,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const animFrameRef = useRef<number | null>(null);
   const lastPlayTimeRef = useRef<number>(0);
 
-  // Key detection
+  // Key detection respecting manual override (Phase D, E, F)
   const keyContext = useMemo<KeyContext | undefined>(() => {
     if (!workingMidi || workingMidi.notes.length === 0) return undefined;
-    return detectKeyFromNotes(workingMidi.notes);
-  }, [workingMidi]);
+
+    if (analysisSettings.keyOverride && analysisSettings.keyOverride !== 'auto') {
+      const rootStr = PITCH_NAMES[analysisSettings.keyOverride.root];
+      const modeStr = analysisSettings.keyOverride.mode === 'major' ? 'Major' : 'Minor';
+      return {
+        root: analysisSettings.keyOverride.root,
+        mode: analysisSettings.keyOverride.mode,
+        name: `${rootStr} ${modeStr}`,
+        confidence: 100,
+        manualOverride: true,
+      };
+    }
+
+    const keyNotes = getNotesForKeyDetection(workingMidi);
+    return detectKeyFromNotes(keyNotes, workingMidi.ppq);
+  }, [workingMidi, analysisSettings.keyOverride]);
 
   const takeSnapshot = (midi: MidiData, segs: ChordSegment[]): HistoryState => ({
     notes: midi.notes.map(n => ({ ...n })),
@@ -113,33 +130,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     })),
   });
 
-  // Decoupled analysis executor with error handling
+  // Web Worker-backed analysis executor (Phase A)
   const runAnalysis = useCallback((
     midi: MidiData,
     settings: AnalysisSettings,
     existingSegs: ChordSegment[] = []
   ) => {
     setIsAnalyzing(true);
-    setAnalysisStage('和声を解析中...');
+    setAnalysisProgress(10);
+    setAnalysisStage('和声解析を開始中...');
     setAnalysisError(null);
 
-    try {
-      const result = analyzeMidi(midi, settings, existingSegs);
-      setSegments(result.segments);
-      setAnalyses(result.analyses);
-      setStatusCounts(result.statusCounts);
-      setIsAnalyzing(false);
-      setAnalysisStage('Complete');
-    } catch (err: any) {
-      console.error('Harmony analysis failure:', err);
-      setAnalysisError(err?.message || 'Failed to analyze harmony');
-      setIsAnalyzing(false);
-    }
+    harmonyWorkerBridge.analyze(
+      midi,
+      settings,
+      existingSegs,
+      {
+        onProgress: (progress, stage) => {
+          setAnalysisProgress(progress);
+          setAnalysisStage(stage);
+        },
+        onSuccess: (result) => {
+          setSegments(result.segments);
+          setAnalyses(result.analyses);
+          setStatusCounts(result.statusCounts);
+          setIsAnalyzing(false);
+          setAnalysisProgress(100);
+          setAnalysisStage('解析完了');
+        },
+        onError: (err) => {
+          console.error('[AppContext] Analysis error:', err);
+          setAnalysisError(err);
+          setIsAnalyzing(false);
+        },
+      }
+    );
   }, []);
 
   const loadMidiBuffer = useCallback((buffer: ArrayBuffer, fileName: string) => {
     try {
       setIsAnalyzing(true);
+      setAnalysisProgress(5);
       setAnalysisStage('MIDIファイル読み込み中...');
       setAnalysisError(null);
 
@@ -173,6 +204,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const loadDemo = useCallback((demoId: DemoCaseId) => {
     try {
       setIsAnalyzing(true);
+      setAnalysisProgress(5);
       setAnalysisStage('デモMIDIを生成中...');
       const parsed = createDemoMidi(demoId);
       setOriginalMidi(parsed);
@@ -421,6 +453,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [analysisSettings, workingMidi, segments, runAnalysis]);
 
+  const setKeyOverride = useCallback((keyOverride: { root: number; mode: 'major' | 'minor' } | 'auto') => {
+    updateAnalysisSettings({ keyOverride });
+  }, [updateAnalysisSettings]);
+
   const reanalyze = useCallback(() => {
     if (workingMidi) {
       runAnalysis(workingMidi, analysisSettings, segments);
@@ -543,7 +579,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [workingMidi, analyses, activeFilter, selectedNoteId, zoomX, zoomY, selectNote, setScroll]);
 
-  // Tempo Map Adaptive Playback (Phase B)
+  // Tempo Map Adaptive Playback (Phase L / Section 44)
   const togglePlay = useCallback(() => {
     if (isPlayingRef.current) {
       setIsPlaying(false);
@@ -562,20 +598,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         lastPlayTimeRef.current = now;
 
         const currentPosTicks = playheadRef.current;
-        // Lookup current tempo at currentPosTicks
-        let currentBpm = 120;
-        if (workingMidi.tempos && workingMidi.tempos.length > 0) {
-          let matched = workingMidi.tempos[0];
-          for (const t of workingMidi.tempos) {
-            if (t.ticks <= currentPosTicks) {
-              matched = t;
-            } else {
-              break;
-            }
-          }
-          currentBpm = matched.bpm || 120;
-        }
-
+        const currentBpm = getTempoAtTicks(currentPosTicks, workingMidi.tempos);
         const ticksPerSec = (currentBpm / 60) * workingMidi.ppq;
         const currentTicks = currentPosTicks + deltaSec * ticksPerSec;
 
@@ -668,6 +691,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isPlaying,
         playheadTicks,
         isAnalyzing,
+        analysisProgress,
         analysisStage,
         analysisError,
         isSettingsOpen,
@@ -687,6 +711,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         toggleTrackVisibility,
         toggleTrackIgnore,
         updateAnalysisSettings,
+        setKeyOverride,
         reanalyze,
         undo,
         redo,

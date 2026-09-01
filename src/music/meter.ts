@@ -1,4 +1,4 @@
-import { TimeSignatureInfo } from '../types/midi';
+import { TimeSignatureInfo, TempoInfo } from '../types/midi';
 
 export interface MeterRegion {
   startTicks: number;
@@ -76,6 +76,24 @@ export function buildMeterMap(
   }
 
   return regions;
+}
+
+export function getBarStartTicks(
+  meterMap: MeterRegion[],
+  totalDurationTicks: number
+): number[] {
+  const barStarts: number[] = [];
+  if (!meterMap || meterMap.length === 0) return [0];
+
+  meterMap.forEach(region => {
+    let tick = region.startTicks;
+    while (tick < region.endTicks && tick <= totalDurationTicks + region.ticksPerBar) {
+      barStarts.push(tick);
+      tick += region.ticksPerBar;
+    }
+  });
+
+  return Array.from(new Set(barStarts)).sort((a, b) => a - b);
 }
 
 export function ticksToMusicalPosition(
@@ -162,7 +180,7 @@ export function calculateTotalBars(
   ppq: number
 ): number {
   if (!meterMap || meterMap.length === 0) return 1;
-  const lastPos = ticksToMusicalPosition(durationTicks, meterMap, ppq);
+  const lastPos = ticksToMusicalPosition(Math.max(0, durationTicks - 1), meterMap, ppq);
   return Math.max(1, lastPos.bar);
 }
 
@@ -192,4 +210,20 @@ export function getTimeSignatureAtTicks(
     }
   }
   return { numerator: currentSig.numerator || 4, denominator: currentSig.denominator || 4 };
+}
+
+export function getTempoAtTicks(
+  ticks: number,
+  tempos: TempoInfo[] = []
+): number {
+  if (!tempos || tempos.length === 0) return 120;
+  let currentBpm = tempos[0].bpm || 120;
+  for (const t of tempos) {
+    if (t.ticks <= ticks) {
+      currentBpm = t.bpm || currentBpm;
+    } else {
+      break;
+    }
+  }
+  return currentBpm;
 }

@@ -1,17 +1,69 @@
 import { Midi } from '@tonejs/midi';
 import { MidiData, TrackData } from '../types/midi';
 
+export interface ExportDiagnosticInfo {
+  mode: 'Direct Raw Byte Patch' | 'Tone.js Fallback' | 'Standard Generation';
+  totalNotes: number;
+  matchedOffsetsCount: number;
+  unmatchedNotesCount: number;
+  ambiguousNotesCount: number;
+  hasOriginalBytes: boolean;
+  canExportDirectBytePatch: boolean;
+  warningMessage?: string;
+}
+
+export function getExportDiagnosticInfo(midiData: MidiData): ExportDiagnosticInfo {
+  const totalNotes = midiData.notes.length;
+  let matchedOffsetsCount = 0;
+  let unmatchedNotesCount = 0;
+  let ambiguousNotesCount = 0;
+
+  midiData.notes.forEach(n => {
+    if (n.noteOnPitchByteOffset !== undefined && n.noteOffPitchByteOffset !== undefined) {
+      matchedOffsetsCount++;
+    } else {
+      unmatchedNotesCount++;
+    }
+  });
+
+  const hasOriginalBytes = !!(midiData.originalBytes && midiData.originalBytes.length > 0);
+  const canExportDirectBytePatch = hasOriginalBytes && (unmatchedNotesCount === 0);
+
+  let mode: ExportDiagnosticInfo['mode'] = 'Standard Generation';
+  let warningMessage: string | undefined;
+
+  if (canExportDirectBytePatch) {
+    mode = 'Direct Raw Byte Patch';
+  } else if (midiData.rawMidi) {
+    mode = 'Tone.js Fallback';
+    warningMessage = '一部のノートで低レベルオフセットが一致しなかったため、Tone.jsパッチ経由でExportします。';
+  } else {
+    mode = 'Standard Generation';
+    warningMessage = '元MIDIの完全非破壊Exportを保証できないため、標準生成Exportを使用します。';
+  }
+
+  return {
+    mode,
+    totalNotes,
+    matchedOffsetsCount,
+    unmatchedNotesCount,
+    ambiguousNotesCount,
+    hasOriginalBytes,
+    canExportDirectBytePatch,
+    warningMessage,
+  };
+}
+
 export function exportMidiFile(
   midiData: MidiData,
   workingTracks: TrackData[]
 ): Uint8Array {
-  // 1. Zero-reconstruction Direct SMF Byte Patcher (β0.3)
+  // 1. Zero-reconstruction Direct SMF Byte Patcher (β0.3 / β0.3.1)
   // If original immutable bytes exist, patch only the Note On/Off pitch data bytes directly.
   if (midiData.originalBytes && midiData.originalBytes.length > 0) {
     try {
       const patchedBytes = new Uint8Array(midiData.originalBytes.slice(0));
       let hasPatchFailure = false;
-      let patchCount = 0;
 
       for (const track of workingTracks) {
         for (const note of track.notes) {
@@ -25,7 +77,6 @@ export function exportMidiFile(
             ) {
               patchedBytes[note.noteOnPitchByteOffset] = note.pitch;
               patchedBytes[note.noteOffPitchByteOffset] = note.pitch;
-              patchCount++;
             } else {
               hasPatchFailure = true;
               break;

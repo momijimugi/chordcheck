@@ -1,9 +1,10 @@
 import React, { useRef, useEffect, useCallback, useMemo, useState } from 'react';
 import { useApp } from '../state/AppContext';
 import { RISK_COLORS } from '../utils/constants';
-import { pitchToName, getPitchClass } from '../music/pitch';
-import { buildMeterMap, ticksToMusicalPosition } from '../music/meter';
-import { MidiData } from '../types/midi';
+import { getPitchClass } from '../music/pitch';
+import { formatPitchName } from '../music/keyDetection';
+import { buildMeterMap } from '../music/meter';
+import { MidiData, NoteData } from '../types/midi';
 import { ZoomIn, ZoomOut, Music } from 'lucide-react';
 
 const MIN_PITCH = 12;  // C0
@@ -31,6 +32,7 @@ interface ContentProps {
 export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
   const {
     analyses,
+    keyContext,
     selectedNoteId,
     selectNote,
     activeFilter,
@@ -86,7 +88,7 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
   const gridWidth = totalTicks * zoomX + 800;
   const gridHeight = TOTAL_KEYS * zoomY;
 
-  // Meter Map for Variable Time Signatures (Phase B)
+  // Meter Map for Variable Time Signatures
   const meterMap = useMemo(() => {
     return buildMeterMap(workingMidi.timeSignatures, ppq, totalTicks);
   }, [workingMidi.timeSignatures, ppq, totalTicks]);
@@ -98,20 +100,35 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
     return map;
   }, [workingMidi]);
 
-  // Keys array from MAX_PITCH down to MIN_PITCH
+  // Pre-indexed temporal note buckets for rapid viewport virtualization (Phase K)
+  const timeBucketSize = Math.max(240, ppq);
+  const noteTemporalBuckets = useMemo(() => {
+    const buckets = new Map<number, NoteData[]>();
+    workingMidi.notes.forEach(note => {
+      const sb = Math.floor(note.startTicks / timeBucketSize);
+      const eb = Math.floor(note.endTicks / timeBucketSize);
+      for (let b = sb; b <= eb; b++) {
+        if (!buckets.has(b)) buckets.set(b, []);
+        buckets.get(b)!.push(note);
+      }
+    });
+    return buckets;
+  }, [workingMidi.notes, timeBucketSize]);
+
+  // Keys array with key-aware enharmonic spelling (Phase G)
   const pianoKeys = useMemo(() => {
     const keys = [];
     for (let p = MAX_PITCH; p >= MIN_PITCH; p--) {
       const pc = getPitchClass(p);
       const isBlack = [1, 3, 6, 8, 10].includes(pc);
       const isC = pc === 0;
-      const name = pitchToName(p);
+      const name = formatPitchName(p, keyContext);
       keys.push({ pitch: p, pc, isBlack, isC, name });
     }
     return keys;
-  }, []);
+  }, [keyContext]);
 
-  // Dynamic Time grid lines based on Meter Map (Bars, Beats, & Signature changes)
+  // Dynamic Time grid lines based on Meter Map
   const gridLines = useMemo(() => {
     const lines: {
       ticks: number;
@@ -163,22 +180,35 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
     return lines;
   }, [meterMap, zoomX]);
 
-  // Viewport Virtualization bounds (Phase F)
+  // Viewport Virtualization bounds (Phase K)
   const visibleStartTicks = Math.max(0, (scrollLeft - 400) / zoomX);
   const visibleEndTicks = (scrollLeft + viewportSize.width + 400) / zoomX;
   const visibleMaxPitch = Math.min(MAX_PITCH, MAX_PITCH - Math.floor((scrollTop - 100) / zoomY) + 12);
   const visibleMinPitch = Math.max(MIN_PITCH, MAX_PITCH - Math.ceil((scrollTop + viewportSize.height + 100) / zoomY) - 12);
 
-  // Virtualized Visible Notes
+  // Virtualized Visible Notes from time buckets
   const visibleNotes = useMemo(() => {
-    return workingMidi.notes.filter(n => {
-      // Time overlap check
-      if (n.endTicks < visibleStartTicks || n.startTicks > visibleEndTicks) return false;
-      // Pitch range check
-      if (n.pitch < visibleMinPitch || n.pitch > visibleMaxPitch) return false;
-      return true;
-    });
-  }, [workingMidi.notes, visibleStartTicks, visibleEndTicks, visibleMinPitch, visibleMaxPitch]);
+    const startB = Math.floor(visibleStartTicks / timeBucketSize);
+    const endB = Math.floor(visibleEndTicks / timeBucketSize);
+    const candidateSet = new Set<string>();
+    const notes: NoteData[] = [];
+
+    for (let b = startB; b <= endB; b++) {
+      const bNotes = noteTemporalBuckets.get(b);
+      if (!bNotes) continue;
+
+      for (let i = 0; i < bNotes.length; i++) {
+        const n = bNotes[i];
+        if (candidateSet.has(n.id)) continue;
+        candidateSet.add(n.id);
+
+        if (n.endTicks >= visibleStartTicks && n.startTicks <= visibleEndTicks && n.pitch >= visibleMinPitch && n.pitch <= visibleMaxPitch) {
+          notes.push(n);
+        }
+      }
+    }
+    return notes;
+  }, [noteTemporalBuckets, visibleStartTicks, visibleEndTicks, visibleMinPitch, visibleMaxPitch, timeBucketSize]);
 
   // Filter evaluation helper
   const isNoteMatchingFilter = useCallback((analysis: any) => {
@@ -198,7 +228,6 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
     }
   }, [activeFilter]);
 
-  // Fit Project helper (horizontal zoom fit)
   const handleFitProject = () => {
     if (containerRef.current && workingMidi.durationTicks > 0) {
       const containerWidth = containerRef.current.clientWidth - 100;
@@ -208,7 +237,6 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
     }
   };
 
-  // Fit Notes helper (vertical scroll fit to note range)
   const handleFitNotes = () => {
     if (workingMidi.notes.length > 0) {
       const pitches = workingMidi.notes.map(n => n.pitch);
@@ -320,11 +348,9 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
             const width = Math.max(8, note.durationTicks * zoomX - 1);
             const height = Math.max(4, zoomY - 1);
 
-            // Risk status styling
             const status = isChordGuideTrack ? 'SAFE' : (analysis?.status || 'SAFE');
             const riskConfig = RISK_COLORS[status];
 
-            // Note appearance based on colorMode or Chord Guide
             let noteBg = isChordGuideTrack ? '#0f766e' : riskConfig.hex;
             let noteBorder = isChordGuideTrack ? '#2dd4bf' : riskConfig.hex;
 
@@ -332,6 +358,8 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
               noteBg = track.settings.color;
               noteBorder = riskConfig.hex;
             }
+
+            const displayName = formatPitchName(note.pitch, keyContext);
 
             return (
               <div
@@ -362,13 +390,13 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
                 }`}
                 title={
                   isChordGuideTrack
-                    ? `${note.name} (コードガイド)`
-                    : `${note.name} (${track?.name || 'Track'}) - ${status} (${analysis?.relation.intervalName || ''})`
+                    ? `${displayName} (コードガイド)`
+                    : `${displayName} (${track?.name || 'Track'}) - ${status} (${analysis?.relation.intervalName || ''})`
                 }
               >
                 {width > 22 && height >= 10 && (
                   <span className="text-[9px] font-bold text-white/90 drop-shadow-sm truncate pointer-events-none leading-none">
-                    {isChordGuideTrack ? `GUIDE ${note.name}` : note.name}
+                    {isChordGuideTrack ? `GUIDE ${displayName}` : displayName}
                   </span>
                 )}
               </div>

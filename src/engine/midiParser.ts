@@ -1,6 +1,7 @@
 import { Midi } from '@tonejs/midi';
 import { MidiData, NoteData, TrackData, TrackRole, TrackSettings } from '../types/midi';
 import { pitchToName, getPitchClass, getOctave } from '../music/pitch';
+import { buildMeterMap, calculateTotalBars } from '../music/meter';
 import { TRACK_COLORS } from '../utils/constants';
 import { detectTrackKeyswitches } from './keyswitchDetection';
 import { parseSMFNoteOffsets, SMFNoteOffset } from './smfPatcher';
@@ -209,9 +210,8 @@ export function parseMidiFile(input: ArrayBuffer | ArrayBufferLike | Uint8Array,
 
   const durationTicks = allNotes.reduce((max, n) => Math.max(max, n.endTicks), 0);
   const durationSeconds = allNotes.reduce((max, n) => Math.max(max, n.endSeconds), 0);
-  const initialTimeSig = timeSignatures.length > 0 ? timeSignatures[0] : { numerator: 4, denominator: 4 };
-  const ticksPerBar = ppq * (4 / initialTimeSig.denominator) * initialTimeSig.numerator;
-  const totalBars = Math.max(1, Math.ceil(durationTicks / Math.max(1, ticksPerBar)));
+  const meterMap = buildMeterMap(timeSignatures, ppq, durationTicks);
+  const totalBars = calculateTotalBars(durationTicks, meterMap, ppq);
 
   return {
     name: fileName.replace(/\.[^/.]+$/, ''),
