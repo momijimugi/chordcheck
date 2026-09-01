@@ -15,7 +15,9 @@ import {
   Music,
   Check,
   ShieldAlert,
-  GitCommit
+  GitCommit,
+  CheckCheck,
+  RotateCcw
 } from 'lucide-react';
 
 export const Inspector: React.FC = () => {
@@ -25,6 +27,8 @@ export const Inspector: React.FC = () => {
     analyses,
     keyContext,
     modifyNotePitch,
+    reviewedNoteIds,
+    toggleNoteReviewed,
   } = useApp();
 
   if (!workingMidi || !selectedNoteId) {
@@ -47,6 +51,7 @@ export const Inspector: React.FC = () => {
     );
   }
 
+  const isReviewed = reviewedNoteIds.has(analysis.noteId);
   const riskConfig = RISK_COLORS[analysis.status];
   const formattedPitchName = formatPitchName(analysis.pitch, keyContext);
 
@@ -82,14 +87,21 @@ export const Inspector: React.FC = () => {
             </button>
           </div>
 
-          {/* Risk Badge */}
-          <div className={`px-2.5 py-1 rounded-md text-xs font-bold border flex items-center gap-1.5 ${riskConfig.badge}`}>
-            {analysis.status === 'WARNING' && <AlertTriangle className="w-3.5 h-3.5" />}
-            {analysis.status === 'CHECK' && <AlertCircle className="w-3.5 h-3.5" />}
-            {analysis.status === 'INFO' && <Info className="w-3.5 h-3.5" />}
-            {analysis.status === 'SAFE' && <CheckCircle2 className="w-3.5 h-3.5" />}
-            <span>{analysis.status}</span>
-          </div>
+          {/* Risk Badge or Reviewed Badge */}
+          {isReviewed ? (
+            <div className="px-2.5 py-1 rounded-md text-xs font-bold border bg-teal-500/20 text-teal-300 border-teal-500/40 flex items-center gap-1.5 shadow-sm">
+              <CheckCheck className="w-3.5 h-3.5 text-teal-400" />
+              <span>確認済み</span>
+            </div>
+          ) : (
+            <div className={`px-2.5 py-1 rounded-md text-xs font-bold border flex items-center gap-1.5 ${riskConfig.badge}`}>
+              {analysis.status === 'WARNING' && <AlertTriangle className="w-3.5 h-3.5" />}
+              {analysis.status === 'CHECK' && <AlertCircle className="w-3.5 h-3.5" />}
+              {analysis.status === 'INFO' && <Info className="w-3.5 h-3.5" />}
+              {analysis.status === 'SAFE' && <CheckCircle2 className="w-3.5 h-3.5" />}
+              <span>{analysis.status}</span>
+            </div>
+          )}
         </div>
 
         {/* Pitch Steppers */}
@@ -125,6 +137,29 @@ export const Inspector: React.FC = () => {
               +12
             </button>
           </div>
+        </div>
+
+        {/* Note Review Workflow Button (Phase K / Section 31-33) */}
+        <div className="mt-3 pt-3 border-t border-[#2e3238]">
+          {isReviewed ? (
+            <button
+              onClick={() => toggleNoteReviewed(analysis.noteId)}
+              className="w-full py-1.5 px-2.5 rounded-lg bg-[#272a30] hover:bg-[#32363e] text-slate-300 text-xs font-semibold flex items-center justify-center gap-1.5 border border-[#3c404a] transition"
+              title="確認済み状態を解除し、要確認一覧へ戻します"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
+              <span>除外を解除（要確認に戻す）</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => toggleNoteReviewed(analysis.noteId)}
+              className="w-full py-1.5 px-2.5 rounded-lg bg-teal-950/40 hover:bg-teal-900/50 text-teal-200 text-xs font-semibold flex items-center justify-center gap-1.5 border border-teal-500/40 transition shadow-sm"
+              title="音楽的に問題ないと判断し、要確認一覧から除外します（MIDIデータは変更されません）"
+            >
+              <CheckCheck className="w-3.5 h-3.5 text-teal-400" />
+              <span>問題なしとして除外（確認済みにする）</span>
+            </button>
+          )}
         </div>
       </div>
 

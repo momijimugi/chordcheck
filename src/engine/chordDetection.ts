@@ -8,6 +8,7 @@ import { pitchClassToName } from '../music/pitch';
 import {
   AnalysisResolution,
   AnalysisSettings,
+  ChordAnalysisSpan,
   ChordCandidate,
   ChordSegment,
   ChordType,
@@ -19,6 +20,7 @@ import {
   getBarStartTicks,
   getMeterPosition,
   getTimeSignatureAtTicks,
+  MeterRegion,
 } from '../music/meter';
 import { getKeyCompatibilityBonus } from '../music/keyDetection';
 
@@ -70,6 +72,111 @@ function cosineSimilarity(vec1: number[], vec2: number[]): number {
   }
   if (mag1 === 0 || mag2 === 0) return 0;
   return dot / (Math.sqrt(mag1) * Math.sqrt(mag2));
+}
+
+export interface SpanWindow {
+  startTicks: number;
+  endTicks: number;
+  barIndex: number;
+  beatIndex: number;
+}
+
+/**
+ * Generates exact musical windows according to MeterMap (variable time signature aware)
+ */
+export function generateSpanWindows(
+  meterMap: MeterRegion[],
+  maxTicks: number,
+  span: ChordAnalysisSpan,
+  ppq: number
+): SpanWindow[] {
+  const windows: SpanWindow[] = [];
+  if (!meterMap || meterMap.length === 0) {
+    const barTicks = ppq * 4;
+    let t = 0;
+    while (t < maxTicks) {
+      windows.push({ startTicks: t, endTicks: Math.min(maxTicks, t + barTicks), barIndex: Math.floor(t / barTicks) + 1, beatIndex: 1 });
+      t += barTicks;
+    }
+    return windows;
+  }
+
+  interface BarInfo {
+    barIndex: number;
+    startTicks: number;
+    endTicks: number;
+    numerator: number;
+    denominator: number;
+    ticksPerBeat: number;
+    ticksPerBar: number;
+  }
+
+  const bars: BarInfo[] = [];
+  meterMap.forEach(region => {
+    let tick = region.startTicks;
+    let b = 0;
+    while (tick < region.endTicks && tick < maxTicks) {
+      const bEnd = Math.min(region.endTicks, tick + region.ticksPerBar);
+      bars.push({
+        barIndex: region.startBar + b,
+        startTicks: tick,
+        endTicks: bEnd,
+        numerator: region.numerator,
+        denominator: region.denominator,
+        ticksPerBeat: region.ticksPerBeat,
+        ticksPerBar: region.ticksPerBar,
+      });
+      tick += region.ticksPerBar;
+      b++;
+    }
+  });
+
+  if (bars.length === 0) {
+    return [{ startTicks: 0, endTicks: maxTicks, barIndex: 1, beatIndex: 1 }];
+  }
+
+  if (span === 'half_bar') {
+    bars.forEach(bar => {
+      const halfTicks = Math.round(bar.ticksPerBar / 2);
+      const mid = bar.startTicks + halfTicks;
+      if (mid < bar.endTicks) {
+        windows.push({ startTicks: bar.startTicks, endTicks: mid, barIndex: bar.barIndex, beatIndex: 1 });
+        const midBeat = Math.floor(bar.numerator / 2) + 1;
+        windows.push({ startTicks: mid, endTicks: bar.endTicks, barIndex: bar.barIndex, beatIndex: midBeat });
+      } else {
+        windows.push({ startTicks: bar.startTicks, endTicks: bar.endTicks, barIndex: bar.barIndex, beatIndex: 1 });
+      }
+    });
+  } else if (span === 'one_bar') {
+    bars.forEach(bar => {
+      windows.push({ startTicks: bar.startTicks, endTicks: bar.endTicks, barIndex: bar.barIndex, beatIndex: 1 });
+    });
+  } else if (span === 'two_bars') {
+    for (let i = 0; i < bars.length; i += 2) {
+      const b1 = bars[i];
+      const b2 = (i + 1 < bars.length) ? bars[i + 1] : b1;
+      windows.push({
+        startTicks: b1.startTicks,
+        endTicks: b2.endTicks,
+        barIndex: b1.barIndex,
+        beatIndex: 1,
+      });
+    }
+  } else if (span === 'four_bars') {
+    for (let i = 0; i < bars.length; i += 4) {
+      const b1 = bars[i];
+      const lastBarIdx = Math.min(bars.length - 1, i + 3);
+      const bEnd = bars[lastBarIdx];
+      windows.push({
+        startTicks: b1.startTicks,
+        endTicks: bEnd.endTicks,
+        barIndex: b1.barIndex,
+        beatIndex: 1,
+      });
+    }
+  }
+
+  return windows;
 }
 
 /**
@@ -138,7 +245,7 @@ export function scoreChordCandidates(
         score += 0.8;
       }
 
-      // 5. Key compatibility tie-breaker bonus (Phase H)
+      // 5. Key compatibility tie-breaker bonus
       if (keyContext) {
         score += getKeyCompatibilityBonus(root, chordType, keyContext);
       }
@@ -219,7 +326,7 @@ export function detectChords(
   const meterMap = buildMeterMap(timeSignatures, ppq, maxTicks);
 
   // -------------------------------------------------------------
-  // Phase C: Hardened Chord Guide Processing with Onset Clustering
+  // Priority 1: Chord Guide Processing with Onset Clustering (Phase C)
   // -------------------------------------------------------------
   if (useChordGuide && chordGuideTrack) {
     const sortedGuideNotes = [...chordGuideTrack.notes].sort((a, b) => a.startTicks - b.startTicks);
@@ -340,16 +447,7 @@ export function detectChords(
     }
   }
 
-  // -------------------------------------------------------------
-  // Phase G & I: Adaptive & Fixed Grid Chord Detection with Spatial Buckets
-  // -------------------------------------------------------------
-  const minSegmentTicks = settings.minSegmentLength === '1/4_beat'
-    ? Math.round(ppq / 4)
-    : settings.minSegmentLength === '1_beat'
-    ? ppq
-    : Math.round(ppq / 2); // Default 1/2 beat
-
-  // Pre-filter harmonic notes (Phase I: Fast bucket indexing)
+  // Pre-filter harmonic notes
   const harmonicNotes = notes.filter(n => {
     const trk = trackMap.get(n.trackId);
     if (!trk || trk.settings.ignore) return false;
@@ -380,14 +478,171 @@ export function detectChords(
     }
   });
 
-  // Collect candidate change points
+  const spanMode = settings.chordAnalysisSpan || 'auto';
+
+  // -------------------------------------------------------------
+  // Priority 2: Manual Span Mode (half_bar, one_bar, two_bars, four_bars)
+  // -------------------------------------------------------------
+  if (spanMode !== 'auto') {
+    const spanWindows = generateSpanWindows(meterMap, maxTicks, spanMode, ppq);
+    const spanSegments: ChordSegment[] = [];
+    let prevRoot: number | null = null;
+    let prevType: ChordType | null = null;
+
+    for (let i = 0; i < spanWindows.length; i++) {
+      const win = spanWindows[i];
+      const winTicks = win.endTicks - win.startTicks;
+      if (winTicks <= 0) continue;
+
+      // Check manual override (Phase G / Section 24)
+      const segKey = `${win.startTicks}_${win.endTicks}`;
+      const manualSeg = overrideMap.get(segKey) || existingSegments.find(
+        s => s.manualOverride &&
+             ((s.startTicks <= win.startTicks && s.endTicks >= win.endTicks) ||
+              (win.startTicks <= s.startTicks && win.endTicks >= s.endTicks) ||
+              Math.abs(s.startTicks - win.startTicks) <= 60)
+      );
+
+      if (manualSeg) {
+        spanSegments.push({
+          ...manualSeg,
+          startTicks: win.startTicks,
+          endTicks: win.endTicks,
+          barIndex: win.barIndex,
+          beatIndex: win.beatIndex,
+          sourceType: 'MANUAL',
+        });
+        prevRoot = manualSeg.root;
+        prevType = manualSeg.type;
+        continue;
+      }
+
+      const pitchProfile = new Array(12).fill(0);
+      let lowestBassPitch = 999;
+      let lowestBassPc = -1;
+      let totalWeight = 0;
+
+      const startBucket = Math.floor(win.startTicks / harmonicBucketSize);
+      const endBucket = Math.floor(win.endTicks / harmonicBucketSize);
+      const windowNotesSeen = new Set<string>();
+
+      for (let b = startBucket; b <= endBucket; b++) {
+        const bucketNotes = harmonicBuckets.get(b);
+        if (!bucketNotes) continue;
+
+        for (let k = 0; k < bucketNotes.length; k++) {
+          const note = bucketNotes[k];
+          if (windowNotesSeen.has(note.id)) continue;
+          windowNotesSeen.add(note.id);
+
+          const overlapStart = Math.max(win.startTicks, note.startTicks);
+          const overlapEnd = Math.min(win.endTicks, note.endTicks);
+          if (overlapEnd <= overlapStart) continue;
+
+          const track = trackMap.get(note.trackId);
+          const overlapTicks = overlapEnd - overlapStart;
+          const overlapRatio = overlapTicks / winTicks;
+
+          let durWeight = getDurationWeight(note.durationTicks, ppq);
+          if (!settings.reduceShortNoteInfluence) durWeight = 1.0;
+
+          const roleWeight = getRoleWeight(track);
+          if (roleWeight <= 0) continue;
+
+          const velWeight = 0.3 + 0.7 * Math.max(0, Math.min(1, note.velocity));
+          const noteMeter = getMeterPosition(note.startTicks, ppq, timeSignatures);
+          const noteWeight = durWeight * velWeight * noteMeter.metricWeight * roleWeight * overlapRatio;
+
+          pitchProfile[note.pitchClass] += noteWeight;
+          totalWeight += noteWeight;
+
+          const isBassTrack = track?.settings.role === 'bass' || track?.settings.detectedRole === 'bass';
+          if (isBassTrack) {
+            if (note.pitch < lowestBassPitch) {
+              lowestBassPitch = note.pitch;
+              lowestBassPc = note.pitchClass;
+            }
+          } else if (lowestBassPitch === 999 || note.pitch < lowestBassPitch) {
+            lowestBassPitch = note.pitch;
+            lowestBassPc = note.pitchClass;
+          }
+        }
+      }
+
+      if (totalWeight < 0.001) {
+        const fallbackRoot = prevRoot !== null ? prevRoot : 0;
+        const fallbackType = prevType !== null ? prevType : 'maj';
+        const rootName = pitchClassToName(fallbackRoot);
+        const displayName = formatChordName(fallbackRoot, fallbackType);
+
+        spanSegments.push({
+          id: `seg_${win.startTicks}`,
+          startTicks: win.startTicks,
+          endTicks: win.endTicks,
+          startSeconds: win.startTicks / ppq * 0.5,
+          endSeconds: win.endTicks / ppq * 0.5,
+          barIndex: win.barIndex,
+          beatIndex: win.beatIndex,
+          root: fallbackRoot,
+          rootName,
+          type: fallbackType,
+          typeName: CHORD_DEFINITIONS[fallbackType].name,
+          bass: fallbackRoot,
+          bassName: rootName,
+          displayName,
+          confidence: 0,
+          candidates: [],
+          manualOverride: false,
+          sourceType: 'AUTO',
+        });
+        continue;
+      }
+
+      const top5 = scoreChordCandidates(pitchProfile, lowestBassPc, prevRoot, prevType, keyContext);
+      const best = top5[0];
+
+      spanSegments.push({
+        id: `seg_${win.startTicks}`,
+        startTicks: win.startTicks,
+        endTicks: win.endTicks,
+        startSeconds: win.startTicks / ppq * 0.5,
+        endSeconds: win.endTicks / ppq * 0.5,
+        barIndex: win.barIndex,
+        beatIndex: win.beatIndex,
+        root: best.root,
+        rootName: best.rootName,
+        type: best.type,
+        typeName: best.typeName,
+        bass: best.bass,
+        bassName: best.bassName,
+        displayName: best.displayName,
+        confidence: best.confidence,
+        candidates: top5,
+        manualOverride: false,
+        sourceType: 'AUTO',
+      });
+
+      prevRoot = best.root;
+      prevType = best.type;
+    }
+
+    return spanSegments;
+  }
+
+  // -------------------------------------------------------------
+  // Priority 3: Adaptive / Grid Mode with Harmonic Smoothing
+  // -------------------------------------------------------------
+  const minSegmentTicks = settings.minSegmentLength === '1/4_beat'
+    ? Math.round(ppq / 4)
+    : settings.minSegmentLength === '1_beat'
+    ? ppq
+    : Math.round(ppq / 2);
+
   const changePointsSet = new Set<number>();
   changePointsSet.add(0);
 
   if (settings.segmentationMode === 'adaptive') {
-    // Multi-track onsets & Bass changes
     const sortedHarmonic = [...harmonicNotes].sort((a, b) => a.startTicks - b.startTicks);
-
     let lastTick = -9999;
     sortedHarmonic.forEach(n => {
       if (n.startTicks - lastTick >= minSegmentTicks) {
@@ -396,11 +651,9 @@ export function detectChords(
       }
     });
 
-    // Phase C: Dynamically add real Bar Start ticks from meterMap (NOT hardcoded 4/4!)
     const barStarts = getBarStartTicks(meterMap, maxTicks);
     barStarts.forEach(tick => changePointsSet.add(tick));
   } else {
-    // Fixed grid
     let gridTick = 0;
     while (gridTick < maxTicks) {
       const timeSig = getTimeSignatureAtTicks(gridTick, timeSignatures);
@@ -432,7 +685,6 @@ export function detectChords(
     let lowestBassPc = -1;
     let totalWeight = 0;
 
-    // Fast bucket query for slice
     const startBucket = Math.floor(startTicks / harmonicBucketSize);
     const endBucket = Math.floor(endTicks / harmonicBucketSize);
     const sliceNotesSeen = new Set<string>();
@@ -501,7 +753,6 @@ export function detectChords(
     const prev = mergedSegments[mergedSegments.length - 1];
     const similarity = cosineSimilarity(prev.profile, curr.profile);
 
-    // If slices have similar harmonic profile (> 0.85) or curr slice has almost no notes, merge into prev
     if (similarity > 0.85 || curr.totalWeight < 0.05) {
       prev.endTicks = curr.endTicks;
       for (let p = 0; p < 12; p++) {
@@ -524,12 +775,20 @@ export function detectChords(
     const seg = mergedSegments[i];
     const meter = getMeterPosition(seg.startTicks, ppq, timeSignatures);
 
-    // Check manual override
+    // Check manual override (Phase G / Section 24)
     const segKey = `${seg.startTicks}_${seg.endTicks}`;
-    const manualSeg = overrideMap.get(segKey);
+    const manualSeg = overrideMap.get(segKey) || existingSegments.find(
+      s => s.manualOverride &&
+           ((s.startTicks <= seg.startTicks && s.endTicks >= seg.endTicks) ||
+            (seg.startTicks <= s.startTicks && seg.endTicks >= s.endTicks) ||
+            Math.abs(s.startTicks - seg.startTicks) <= 60)
+    );
+
     if (manualSeg) {
       finalSegments.push({
         ...manualSeg,
+        startTicks: seg.startTicks,
+        endTicks: seg.endTicks,
         barIndex: meter.bar,
         beatIndex: meter.beat,
         sourceType: 'MANUAL',
@@ -569,7 +828,22 @@ export function detectChords(
     }
 
     const top5 = scoreChordCandidates(seg.profile, seg.lowestBassPc, prevRoot, prevType, keyContext);
-    const best = top5[0];
+    let best = top5[0];
+
+    // Harmonic Smoothing (Phase E & F: Core tone stability vs transient tension/melody notes)
+    if (prevRoot !== null && prevType !== null && (best.root !== prevRoot || best.type !== prevType)) {
+      const prevCand = top5.find(c => c.root === prevRoot && c.type === prevType);
+      if (prevCand) {
+        const scoreDiff = best.score - prevCand.score;
+        const sameRoot = best.root === prevRoot;
+        const sameBass = best.bass === prevCand.bass;
+
+        // If score difference is marginal (< 1.6) and root/bass has not distinctly shifted to a new functional harmony
+        if (scoreDiff < 1.6 && (sameRoot || (sameBass && scoreDiff < 1.2))) {
+          best = prevCand;
+        }
+      }
+    }
 
     finalSegments.push({
       id: `seg_${seg.startTicks}`,

@@ -138,9 +138,23 @@ export const HarmonyTimeline: React.FC = () => {
   return (
     <div className="h-14 bg-[#1e2025] border-b border-[#2e3238] flex items-center relative overflow-hidden select-none shrink-0">
       {/* Fixed Left Header (224px / w-56 matching TrackList column) */}
-      <div className="w-56 h-full bg-[#18191c] border-r border-[#2e3238] flex items-center justify-between px-3 shrink-0 z-10 shadow-md">
-        <div className="flex items-center gap-1.5">
-          <span className="text-xs font-semibold text-slate-300">コード進行</span>
+      <div className="w-56 h-full bg-[#18191c] border-r border-[#2e3238] flex items-center justify-between px-2.5 shrink-0 z-10 shadow-md">
+        <div className="flex items-center gap-1">
+          <span className="text-xs font-semibold text-slate-200">コード進行</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <select
+            value={useApp().analysisSettings.chordAnalysisSpan || 'auto'}
+            onChange={(e) => useApp().updateAnalysisSettings({ chordAnalysisSpan: e.target.value as any })}
+            className="bg-[#202226] border border-[#3c404a] rounded px-1.5 py-0.5 text-[10px] text-slate-200 focus:outline-none focus:border-blue-500 cursor-pointer font-medium"
+            title="コード解析単位（テンションや経過音による過剰な変化を抑えたい場合は2小節などを指定）"
+          >
+            <option value="auto">自動</option>
+            <option value="half_bar">1/2小節</option>
+            <option value="one_bar">1小節</option>
+            <option value="two_bars">2小節</option>
+            <option value="four_bars">4小節</option>
+          </select>
         </div>
       </div>
 

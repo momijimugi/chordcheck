@@ -6,7 +6,7 @@ import { formatPitchName } from '../music/keyDetection';
 import { buildMeterMap } from '../music/meter';
 import { MidiData, NoteData } from '../types/midi';
 import { calculateFitZoom, LEFT_GUTTER_WIDTH, tickToX, xToTick } from '../utils/timelineGeometry';
-import { ZoomIn, ZoomOut, Music } from 'lucide-react';
+import { ZoomIn, ZoomOut, Music, CheckCheck } from 'lucide-react';
 
 const MIN_PITCH = 12;  // C0
 const MAX_PITCH = 108; // C8
@@ -48,26 +48,35 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
     isPlaying,
     playheadTicks,
     setPlayheadTicks,
+    reviewedNoteIds,
   } = useApp();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const isSyncingScroll = useRef(false);
   const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>({ width: 1200, height: 600 });
+  const [timelineZoomMode, setTimelineZoomMode] = useState<'fit' | 'manual'>('manual');
 
-  // Update container size on resize
+  // Responsive Auto Fit / Container Resize (Phase S / Section 59-63)
   useEffect(() => {
     const updateSize = () => {
       if (containerRef.current) {
+        const newWidth = containerRef.current.clientWidth;
         setViewportSize({
-          width: containerRef.current.clientWidth,
+          width: newWidth,
           height: containerRef.current.clientHeight,
         });
+
+        if (timelineZoomMode === 'fit' && workingMidi.durationTicks > 0) {
+          const optimalZoomX = calculateFitZoom(newWidth, workingMidi.durationTicks);
+          setZoomX(optimalZoomX);
+        }
       }
     };
+
     updateSize();
     window.addEventListener('resize', updateSize);
     return () => window.removeEventListener('resize', updateSize);
-  }, []);
+  }, [timelineZoomMode, workingMidi.durationTicks, setZoomX]);
 
   // Sync scroll from state
   useEffect(() => {
@@ -77,7 +86,7 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
     }
   }, [scrollLeft, scrollTop]);
 
-  // Auto-scroll playback follow (Phase O / Section 58)
+  // Auto-scroll playback follow
   useEffect(() => {
     if (isPlaying && containerRef.current) {
       const playheadX = tickToX(playheadTicks, zoomX);
@@ -226,8 +235,11 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
   }, [noteTemporalBuckets, visibleStartTicks, visibleEndTicks, visibleMinPitch, visibleMaxPitch, timeBucketSize]);
 
   // Filter evaluation helper
-  const isNoteMatchingFilter = useCallback((analysis: any) => {
+  const isNoteMatchingFilter = useCallback((analysis: any, noteId: string) => {
     if (!analysis) return true;
+    if (reviewedNoteIds.has(noteId) && activeFilter !== 'ALL') {
+      return false; // Hide reviewed notes in specific filter modes
+    }
     switch (activeFilter) {
       case 'WARNING_ONLY':
         return analysis.status === 'WARNING';
@@ -241,7 +253,7 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
       default:
         return true;
     }
-  }, [activeFilter]);
+  }, [activeFilter, reviewedNoteIds]);
 
   const handleGridClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -252,6 +264,7 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
 
   const handleFitProject = () => {
     if (containerRef.current && workingMidi.durationTicks > 0) {
+      setTimelineZoomMode('fit');
       const optimalZoomX = calculateFitZoom(containerRef.current.clientWidth, workingMidi.durationTicks);
       setZoomX(optimalZoomX);
       setScroll(0, scrollTop);
@@ -267,6 +280,11 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
       const targetTop = (MAX_PITCH - avgP) * zoomY - 200;
       setScroll(scrollLeft, Math.max(0, targetTop));
     }
+  };
+
+  const handleManualZoomX = (multiplier: number) => {
+    setTimelineZoomMode('manual');
+    setZoomX((z: number) => z * multiplier);
   };
 
   return (
@@ -362,7 +380,8 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
 
             const isChordGuideTrack = track?.settings.role === 'chord_guide';
             const analysis = analyses.get(note.id);
-            const matchesFilter = isChordGuideTrack ? true : isNoteMatchingFilter(analysis);
+            const isReviewed = reviewedNoteIds.has(note.id);
+            const matchesFilter = isChordGuideTrack ? true : isNoteMatchingFilter(analysis, note.id);
             const isSelected = selectedNoteId === note.id;
 
             const top = (MAX_PITCH - note.pitch) * zoomY;
@@ -379,6 +398,11 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
             if (!isChordGuideTrack && colorMode === 'track' && track) {
               noteBg = track.settings.color;
               noteBorder = riskConfig.hex;
+            }
+
+            if (isReviewed) {
+              noteBg = '#334155';
+              noteBorder = '#64748b';
             }
 
             const displayName = formatPitchName(note.pitch, keyContext);
@@ -400,26 +424,31 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
                   height: `${height}px`,
                   backgroundColor: matchesFilter ? noteBg : `${noteBg}22`,
                   borderColor: isSelected ? '#ffffff' : matchesFilter ? noteBorder : `${noteBorder}33`,
-                  opacity: matchesFilter ? 1 : 0.2,
+                  opacity: matchesFilter ? (isReviewed ? 0.6 : 1) : 0.2,
                 }}
                 className={`absolute rounded-[3px] border cursor-pointer transition-all flex items-center px-1 overflow-hidden select-none ${
                   isSelected
                     ? 'ring-2 ring-white ring-offset-1 ring-offset-black z-30 shadow-lg scale-[1.02]'
                     : isChordGuideTrack
                     ? 'z-10 shadow-sm border-dashed'
+                    : isReviewed
+                    ? 'z-5 opacity-60 border-slate-500'
                     : status === 'WARNING'
                     ? 'shadow-sm shadow-rose-950/80 z-10'
                     : 'z-0 hover:brightness-125'
                 }`}
                 title={
-                  isChordGuideTrack
+                  isReviewed
+                    ? `${displayName} (${track?.name || 'Track'}) - 確認済み: 問題なしとして除外されています`
+                    : isChordGuideTrack
                     ? `${displayName} (コードガイド)`
                     : `${displayName} (${track?.name || 'Track'}) - ${status} (${analysis?.relation.intervalName || ''})`
                 }
               >
                 {width > 22 && height >= 10 && (
-                  <span className="text-[9px] font-bold text-white/90 drop-shadow-sm truncate pointer-events-none leading-none">
-                    {isChordGuideTrack ? `GUIDE ${displayName}` : displayName}
+                  <span className="text-[9px] font-bold text-white/90 drop-shadow-sm truncate pointer-events-none leading-none flex items-center gap-0.5">
+                    {isReviewed && <span className="text-teal-300 font-bold">✓</span>}
+                    <span>{isChordGuideTrack ? `GUIDE ${displayName}` : displayName}</span>
                   </span>
                 )}
               </div>
@@ -442,8 +471,12 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
       <div className="absolute bottom-4 right-4 bg-[#202226]/90 backdrop-blur border border-[#3c404a] rounded-lg p-1.5 flex items-center gap-1.5 shadow-xl z-30">
         <button
           onClick={handleFitProject}
-          className="px-2 py-1 rounded bg-[#272a30] hover:bg-[#32363e] text-[10px] font-medium text-slate-300 transition"
-          title="楽曲全体を横幅いっぱいに表示"
+          className={`px-2 py-1 rounded text-[10px] font-medium transition ${
+            timelineZoomMode === 'fit'
+              ? 'bg-blue-600 text-white font-bold'
+              : 'bg-[#272a30] hover:bg-[#32363e] text-slate-300'
+          }`}
+          title="楽曲全体を横幅いっぱいに自動追従表示 (Fit Mode)"
         >
           全体表示
         </button>
@@ -456,14 +489,14 @@ export const PianoRollContent: React.FC<ContentProps> = ({ workingMidi }) => {
         </button>
         <div className="w-[1px] h-3 bg-[#3c404a] mx-0.5" />
         <button
-          onClick={() => setZoomX((z: number) => z * 1.25)}
+          onClick={() => handleManualZoomX(1.25)}
           className="p-1 rounded bg-[#272a30] hover:bg-[#32363e] text-slate-300 transition"
           title="時間軸を拡大 (横ズーム+)"
         >
           <ZoomIn className="w-3.5 h-3.5" />
         </button>
         <button
-          onClick={() => setZoomX((z: number) => z * 0.8)}
+          onClick={() => handleManualZoomX(0.8)}
           className="p-1 rounded bg-[#272a30] hover:bg-[#32363e] text-slate-300 transition"
           title="時間軸を縮小 (横ズーム-)"
         >

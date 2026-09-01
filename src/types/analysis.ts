@@ -8,6 +8,13 @@ export type SegmentationMode = 'adaptive' | 'fixed_grid';
 
 export type MinSegmentLength = '1/4_beat' | '1/2_beat' | '1_beat';
 
+export type ChordAnalysisSpan =
+  | 'auto'
+  | 'half_bar'
+  | 'one_bar'
+  | 'two_bars'
+  | 'four_bars';
+
 export type AnalysisProfile = 'balanced' | 'strict' | 'film_modern' | 'jazz_extended';
 
 export type ChordType = 
@@ -155,6 +162,7 @@ export interface AnalysisSettings {
   profile: AnalysisProfile;
   segmentationMode: SegmentationMode;
   minSegmentLength: MinSegmentLength;
+  chordAnalysisSpan?: ChordAnalysisSpan;
   resolution: AnalysisResolution;
   harmonySourceMode: HarmonySourceMode;
   minDurationTicks: number;

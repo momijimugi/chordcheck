@@ -52,11 +52,14 @@ interface AppContextValue extends AppState {
   setPlayheadTicks: (ticks: number) => void;
   setSettingsOpen: (open: boolean) => void;
   setIsDraggingFile: (dragging: boolean) => void;
-  // Drum Confirmation Modal (Phase C / β0.4)
+  // Drum Confirmation Modal
   isDrumConfirmModalOpen: boolean;
   pendingDrumTracks: TrackData[];
   confirmDrumTracks: (selectedTrackIds: number[]) => void;
   dismissDrumConfirm: () => void;
+  // Note Review Workflow (Phase I ~ O / β0.4.1)
+  reviewedNoteIds: Set<string>;
+  toggleNoteReviewed: (noteId: string) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -81,6 +84,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [showLowConfidenceOnly, setShowLowConfidenceOnly] = useState<boolean>(false);
   const [analysisSettings, setAnalysisSettings] = useState<AnalysisSettings>(DEFAULT_ANALYSIS_SETTINGS);
 
+  // Note Review State (Phase I & J / β0.4.1)
+  const [reviewedNoteIds, setReviewedNoteIds] = useState<Set<string>>(new Set());
+
   const [past, setPast] = useState<HistoryState[]>([]);
   const [future, setFuture] = useState<HistoryState[]>([]);
 
@@ -90,9 +96,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [scrollTop, setScrollTop] = useState<number>(500);
 
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [playheadTicks, setPlayheadTicks] = useState<number>(0);
+  const [playheadTicks, setPlayheadTicksState] = useState<number>(0);
 
-  // Drum Confirmation state (Phase C / β0.4)
+  // Drum Confirmation state
   const [isDrumConfirmModalOpen, setIsDrumConfirmModalOpen] = useState<boolean>(false);
   const [pendingDrumTracks, setPendingDrumTracks] = useState<TrackData[]>([]);
 
@@ -110,6 +116,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const isPlayingRef = useRef<boolean>(false);
   const animFrameRef = useRef<number | null>(null);
   const lastPlayTimeRef = useRef<number>(0);
+
+  // O(1) Playback Scheduler Refs (Phase Q & R / β0.4.1)
+  const sortedNotesRef = useRef<NoteData[]>([]);
+  const nextNoteIndexRef = useRef<number>(0);
+  const trackMapRef = useRef<Map<number, TrackData>>(new Map());
 
   // Key detection respecting manual override
   const keyContext = useMemo<KeyContext | undefined>(() => {
@@ -143,6 +154,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       candidates: s.candidates.map(c => ({ ...c })),
     })),
   });
+
+  // Toggle Note Reviewed state
+  const toggleNoteReviewed = useCallback((noteId: string) => {
+    setReviewedNoteIds(prev => {
+      const next = new Set(prev);
+      if (next.has(noteId)) {
+        next.delete(noteId);
+      } else {
+        next.add(noteId);
+      }
+      return next;
+    });
+  }, []);
 
   // Web Worker-backed analysis executor
   const runAnalysis = useCallback((
@@ -207,7 +231,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setFuture([]);
       setSelectedNoteId(null);
       setSelectedSegmentId(null);
-      setPlayheadTicks(0);
+      setReviewedNoteIds(new Set());
+      setPlayheadTicksState(0);
       playheadRef.current = 0;
       setIsPlaying(false);
       isPlayingRef.current = false;
@@ -240,8 +265,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setFuture([]);
       setSelectedNoteId(null);
       setSelectedSegmentId(null);
+      setReviewedNoteIds(new Set());
       setActiveDemoId(demoId);
-      setPlayheadTicks(0);
+      setPlayheadTicksState(0);
       playheadRef.current = 0;
       setIsPlaying(false);
       isPlayingRef.current = false;
@@ -254,11 +280,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [analysisSettings, runAnalysis]);
 
-  // Drum Confirmation Handlers
+  // Drum Confirmation Handlers (Phase P Fix: only candidate tracks are updated)
   const confirmDrumTracks = useCallback((selectedTrackIds: number[]) => {
     if (!workingMidi) return;
     const selectedSet = new Set(selectedTrackIds);
+    const candidateSet = new Set(pendingDrumTracks.map(t => t.id));
+
     const updatedTracks = workingMidi.tracks.map(t => {
+      if (!candidateSet.has(t.id)) {
+        return t; // Unrelated tracks are left untouched!
+      }
       if (selectedSet.has(t.id)) {
         return {
           ...t,
@@ -275,6 +306,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ...t,
           settings: {
             ...t.settings,
+            role: 'auto' as TrackRole,
+            ignore: false,
             roleSource: 'manual' as const,
           },
         };
@@ -286,22 +319,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsDrumConfirmModalOpen(false);
     setPendingDrumTracks([]);
     runAnalysis(nextMidi, analysisSettings, segments);
-  }, [workingMidi, analysisSettings, segments, runAnalysis]);
+  }, [workingMidi, pendingDrumTracks, analysisSettings, segments, runAnalysis]);
 
   const dismissDrumConfirm = useCallback(() => {
     if (!workingMidi) return;
-    // Mark as manually evaluated so modal does not re-open
-    const updatedTracks = workingMidi.tracks.map(t => ({
-      ...t,
-      settings: {
-        ...t.settings,
-        roleSource: 'manual' as const,
-      },
-    }));
+    const candidateSet = new Set(pendingDrumTracks.map(t => t.id));
+    const updatedTracks = workingMidi.tracks.map(t => {
+      if (!candidateSet.has(t.id)) {
+        return t; // Unrelated tracks are left untouched!
+      }
+      return {
+        ...t,
+        settings: {
+          ...t.settings,
+          role: 'auto' as TrackRole,
+          ignore: false,
+          roleSource: 'manual' as const,
+        },
+      };
+    });
     setWorkingMidi({ ...workingMidi, tracks: updatedTracks });
     setIsDrumConfirmModalOpen(false);
     setPendingDrumTracks([]);
-  }, [workingMidi]);
+  }, [workingMidi, pendingDrumTracks]);
 
   // Export Safety Modal state
   const [isExportSafetyModalOpen, setIsExportSafetyModalOpen] = useState<boolean>(false);
@@ -325,12 +365,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [workingMidi, performExport]);
 
+  // Modify Note Pitch (clears review state for this note)
   const modifyNotePitch = useCallback((noteId: string, newPitch: number) => {
     if (!workingMidi) return;
     const clampedPitch = Math.max(0, Math.min(127, Math.round(newPitch)));
 
     setPast(prev => [...prev.slice(-40), takeSnapshot(workingMidi, segments)]);
     setFuture([]);
+
+    // Clear reviewed state on pitch change (Phase N / Section 42)
+    setReviewedNoteIds(prev => {
+      if (prev.has(noteId)) {
+        const next = new Set(prev);
+        next.delete(noteId);
+        return next;
+      }
+      return prev;
+    });
 
     const updatedNotes = workingMidi.notes.map(note => {
       if (note.id === noteId) {
@@ -616,6 +667,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const freshMidi = parseMidiFile(workingMidi.originalBytes.buffer, `${workingMidi.name}.mid`);
     setPast(prev => [...prev, takeSnapshot(workingMidi, segments)]);
     setFuture([]);
+    setReviewedNoteIds(new Set());
     setWorkingMidi(freshMidi);
     runAnalysis(freshMidi, analysisSettings);
   }, [workingMidi, segments, analysisSettings, runAnalysis]);
@@ -658,10 +710,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setScrollTop(Math.max(0, top));
   }, []);
 
+  // Warning Navigator (Excludes Reviewed Notes, Phase L)
   const navigateWarning = useCallback((direction: 'prev' | 'next') => {
     if (!workingMidi || analyses.size === 0) return;
 
     const flaggedNotes = workingMidi.notes.filter(n => {
+      if (reviewedNoteIds.has(n.id)) return false; // Exclude reviewed!
       const a = analyses.get(n.id);
       if (!a) return false;
       if (activeFilter === 'WARNING_ONLY') return a.status === 'WARNING';
@@ -690,9 +744,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const noteY = (108 - targetNote.pitch) * zoomY;
       setScroll(Math.max(0, noteX - 350), Math.max(0, noteY - 180));
     }
-  }, [workingMidi, analyses, activeFilter, selectedNoteId, zoomX, zoomY, selectNote, setScroll]);
+  }, [workingMidi, analyses, reviewedNoteIds, activeFilter, selectedNoteId, zoomX, zoomY, selectNote, setScroll]);
 
-  // Tempo Map Adaptive Playback with Instrument Family Synth (Phase P / Section 60-63)
+  // Binary search helper for next note index
+  const findNextNoteIndex = useCallback((targetTicks: number, notesArr: NoteData[]): number => {
+    let low = 0;
+    let high = notesArr.length;
+    while (low < high) {
+      const mid = (low + high) >> 1;
+      if (notesArr[mid].startTicks < targetTicks) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
+    }
+    return low;
+  }, []);
+
+  // O(1) Playback Scheduler & Solo Playback Fix (Phase Q & R)
   const togglePlay = useCallback(() => {
     if (isPlayingRef.current) {
       setIsPlaying(false);
@@ -705,11 +774,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       isPlayingRef.current = true;
       lastPlayTimeRef.current = performance.now();
 
+      // Pre-sort notes and build pre-computed track map
+      const sorted = [...workingMidi.notes].sort((a, b) => a.startTicks - b.startTicks);
+      sortedNotesRef.current = sorted;
+      const tMap = new Map<number, TrackData>();
+      workingMidi.tracks.forEach(t => tMap.set(t.id, t));
+      trackMapRef.current = tMap;
+
       // If playhead was at the end, restart from 0
       if (playheadRef.current >= workingMidi.durationTicks - 10) {
         playheadRef.current = 0;
-        setPlayheadTicks(0);
+        setPlayheadTicksState(0);
       }
+
+      nextNoteIndexRef.current = findNextNoteIndex(playheadRef.current, sorted);
 
       const step = (now: number) => {
         if (!isPlayingRef.current) return;
@@ -723,37 +801,53 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         if (currentTicks >= workingMidi.durationTicks) {
           playheadRef.current = 0;
-          setPlayheadTicks(0);
+          setPlayheadTicksState(0);
           setIsPlaying(false);
           isPlayingRef.current = false;
           audioSynth.stopAll();
           return;
         }
 
-        workingMidi.notes.forEach(note => {
-          const track = workingMidi.tracks.find(t => t.id === note.trackId);
-          if (track && (track.settings.muted || track.settings.ignore)) return;
+        // Check if any track has solo === true (Phase R / Section 57-58)
+        const hasSolo = workingMidi.tracks.some(t => t.settings.solo);
+        const curSorted = sortedNotesRef.current;
+        const curMap = trackMapRef.current;
 
-          if (note.startTicks >= playheadRef.current && note.startTicks < currentTicks) {
-            const family = track?.settings.instrumentFamily || 'piano';
+        // O(1) sequential playback of arrived notes
+        while (nextNoteIndexRef.current < curSorted.length) {
+          const note = curSorted[nextNoteIndexRef.current];
+          if (note.startTicks >= currentTicks) {
+            break;
+          }
+          nextNoteIndexRef.current++;
+
+          if (note.startTicks >= currentPosTicks) {
+            const track = curMap.get(note.trackId);
+            if (!track || track.settings.ignore || track.settings.muted) continue;
+            if (hasSolo && !track.settings.solo) continue; // Solo filter!
+
+            const family = track.settings.instrumentFamily || 'piano';
             audioSynth.playNote(note.pitch, note.durationTicks / ticksPerSec, note.velocity, family);
           }
-        });
+        }
 
         playheadRef.current = currentTicks;
-        setPlayheadTicks(currentTicks);
+        setPlayheadTicksState(currentTicks);
 
         animFrameRef.current = requestAnimationFrame(step);
       };
 
       animFrameRef.current = requestAnimationFrame(step);
     }
-  }, [workingMidi]);
+  }, [workingMidi, findNextNoteIndex]);
 
   const setPlayhead = useCallback((ticks: number) => {
     playheadRef.current = ticks;
-    setPlayheadTicks(ticks);
-  }, []);
+    setPlayheadTicksState(ticks);
+    if (sortedNotesRef.current.length > 0) {
+      nextNoteIndexRef.current = findNextNoteIndex(ticks, sortedNotesRef.current);
+    }
+  }, [findNextNoteIndex]);
 
   // Global Keyboard Shortcuts (Space play/pause, Ctrl+Z, Ctrl+Y, [, ])
   useEffect(() => {
@@ -860,6 +954,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         pendingDrumTracks,
         confirmDrumTracks,
         dismissDrumConfirm,
+        reviewedNoteIds,
+        toggleNoteReviewed,
       }}
     >
       {children}

@@ -69,6 +69,7 @@ export const DEFAULT_ANALYSIS_SETTINGS: AnalysisSettings = {
   profile: 'balanced',
   segmentationMode: 'adaptive',
   minSegmentLength: '1/2_beat',
+  chordAnalysisSpan: 'auto',
   resolution: '1_beat',
   harmonySourceMode: 'chord_guide_preferred',
   minDurationTicks: 0,

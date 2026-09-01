@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { useApp } from '../state/AppContext';
-import { AnalysisProfile, AnalysisResolution, HarmonySourceMode, MinSegmentLength, SegmentationMode } from '../types/analysis';
+import { AnalysisProfile, AnalysisResolution, ChordAnalysisSpan, HarmonySourceMode, MinSegmentLength, SegmentationMode } from '../types/analysis';
 import { DEFAULT_ANALYSIS_SETTINGS, ANALYSIS_PROFILES } from '../utils/constants';
 import { getExportDiagnosticInfo } from '../engine/midiExporter';
-import { Settings, X, RotateCcw, Sliders, ShieldCheck, Sparkles, Wand2, FileCode, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Settings, X, RotateCcw, Sliders, ShieldCheck, Sparkles, Wand2, FileCode, CheckCircle, AlertTriangle, RefreshCw, Layers } from 'lucide-react';
 
 export const SettingsModal: React.FC = () => {
   const {
@@ -12,6 +12,7 @@ export const SettingsModal: React.FC = () => {
     workingMidi,
     analysisSettings,
     updateAnalysisSettings,
+    reanalyze,
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<'engine' | 'diagnostics'>('engine');
@@ -36,7 +37,7 @@ export const SettingsModal: React.FC = () => {
         <div className="flex items-center justify-between pb-4 border-b border-[#2e3238]">
           <div className="flex items-center gap-2">
             <Settings className="w-5 h-5 text-emerald-400" />
-            <h3 className="font-bold text-base text-slate-100">設定・MIDI診断 (β0.3.3)</h3>
+            <h3 className="font-bold text-base text-slate-100">設定・MIDI診断 (β0.4.1)</h3>
           </div>
           <button
             onClick={() => setSettingsOpen(false)}
@@ -73,7 +74,55 @@ export const SettingsModal: React.FC = () => {
 
         {activeTab === 'engine' ? (
           <div className="mt-4 space-y-4">
-            {/* Section 0: Analysis Profile Presets */}
+            {/* Section 0: Chord Analysis Span (Phase B & C / β0.4.1) */}
+            <div className="bg-[#18191c] p-3.5 rounded-lg border border-[#2e3238]">
+              <label className="text-xs font-semibold text-slate-200 block mb-1 flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-purple-400" />
+                <span>コード解析単位 (Harmonic Rhythm Span):</span>
+              </label>
+              <p className="text-[11px] text-slate-400 mb-2.5 leading-relaxed">
+                コード進行が変化する周期を指定します。テンションや経過音によってコードが細かく誤判定される場合は「2小節」などを指定して再解析してください。
+              </p>
+
+              <div className="grid grid-cols-5 gap-1.5">
+                {(['auto', 'half_bar', 'one_bar', 'two_bars', 'four_bars'] as ChordAnalysisSpan[]).map(span => {
+                  const isSelected = (analysisSettings.chordAnalysisSpan || 'auto') === span;
+                  const label = span === 'auto' ? '自動' :
+                                span === 'half_bar' ? '1/2小節' :
+                                span === 'one_bar' ? '1小節' :
+                                span === 'two_bars' ? '2小節' : '4小節';
+
+                  return (
+                    <button
+                      key={span}
+                      type="button"
+                      onClick={() => updateAnalysisSettings({ chordAnalysisSpan: span })}
+                      className={`py-1.5 px-2 rounded-md text-xs font-semibold border text-center transition ${
+                        isSelected
+                          ? 'bg-purple-950/70 border-purple-500 text-purple-200 shadow-sm'
+                          : 'bg-[#202226] border-[#3c404a] text-slate-300 hover:bg-[#272a30]'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-3 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => reanalyze()}
+                  className="px-3 py-1 rounded-md bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-semibold flex items-center gap-1 shadow-sm transition"
+                  title="選択した解析単位でコード進行を再解析"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>この設定でコードを再解析</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Section 1: Analysis Profile Presets */}
             <div>
               <label className="text-xs font-semibold text-slate-300 block mb-1.5 flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-amber-400" />
@@ -91,7 +140,7 @@ export const SettingsModal: React.FC = () => {
               </select>
             </div>
 
-            {/* Section 1: Harmonic Source Mode */}
+            {/* Section 2: Harmonic Source Mode */}
             <div className="pt-3 border-t border-[#2e3238]">
               <label className="text-xs font-semibold text-slate-300 block mb-1.5 flex items-center gap-1.5">
                 <ShieldCheck className="w-3.5 h-3.5 text-teal-400" />
@@ -111,7 +160,7 @@ export const SettingsModal: React.FC = () => {
               </p>
             </div>
 
-            {/* Section 2: Adaptive vs Fixed Segmentation */}
+            {/* Section 3: Adaptive vs Fixed Segmentation */}
             <div className="pt-3 border-t border-[#2e3238]">
               <label className="text-xs font-semibold text-slate-300 block mb-1.5 flex items-center gap-1.5">
                 <Wand2 className="w-3.5 h-3.5 text-sky-400" />
@@ -179,7 +228,7 @@ export const SettingsModal: React.FC = () => {
               )}
             </div>
 
-            {/* Section 3: Short Notes Handling */}
+            {/* Section 4: Short Notes Handling */}
             <div className="pt-3 border-t border-[#2e3238]">
               <label className="text-xs font-semibold text-slate-300 block mb-2">
                 装飾音・短い音の扱い:
@@ -199,7 +248,7 @@ export const SettingsModal: React.FC = () => {
               </div>
             </div>
 
-            {/* Section 4: Risk Scoring Weights */}
+            {/* Section 5: Risk Scoring Weights */}
             <div className="pt-3 border-t border-[#2e3238] space-y-3">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
@@ -280,7 +329,7 @@ export const SettingsModal: React.FC = () => {
             </div>
           </div>
         ) : (
-          /* Diagnostics Tab (Phase N) */
+          /* Diagnostics Tab */
           <div className="mt-4 space-y-3 text-xs">
             {workingMidi && diag ? (
               <div className="space-y-3">
@@ -310,7 +359,7 @@ export const SettingsModal: React.FC = () => {
                   )}
                 </div>
 
-                {/* Statistics Grid (Phase C / β0.3.2) */}
+                {/* Statistics Grid */}
                 <div className="grid grid-cols-2 gap-2 bg-[#18191c] p-3 rounded-lg border border-[#2e3238]">
                   <div>
                     <span className="text-slate-400 block text-[11px]">ファイル名</span>
@@ -355,7 +404,7 @@ export const SettingsModal: React.FC = () => {
                     <span>元SMFバイト保持: <strong className={diag.hasOriginalBytes ? 'text-emerald-400' : 'text-rose-400'}>{diag.hasOriginalBytes ? 'あり (100%)' : 'なし'}</strong></span>
                   </div>
                   <div className="col-span-2 pt-1 border-t border-[#2e3238] flex justify-between text-slate-500 text-[10px]">
-                    <span>アプリVersion: <strong className="text-slate-300">β0.3.3 Production</strong></span>
+                    <span>アプリVersion: <strong className="text-slate-300">β0.4.1 Production</strong></span>
                     <span>公開環境: <strong className="text-slate-300">GitHub Pages (/chordcheck/)</strong></span>
                   </div>
                 </div>
