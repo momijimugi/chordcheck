@@ -142,23 +142,57 @@ export function parseMidiFile(input: ArrayBuffer | ArrayBufferLike | Uint8Array,
 
     const trackNotes: NoteData[] = [];
 
-    // Match offsets against remaining SMF offsets for this track
+    // Match offsets against remaining SMF offsets for this track (Phase A / β0.3.2)
     track.notes.forEach((note, sourceNoteIndex) => {
       const pitch = note.midi;
       const startTicks = note.ticks;
       const durationTicks = note.durationTicks;
       const endTicks = startTicks + durationTicks;
+      const velocityMidi = Math.round((note.velocity ?? 0.8) * 127);
 
-      // Find matching SMF offset by pitch and startTicks
-      const offsetIndex = smfOffsets.findIndex(
-        o => (o.channel === track.channel || o.trackIndex === sourceTrackIndex) &&
+      // 1. Gather all candidates within tolerance (track/channel, pitch, startTicks +- 2)
+      let candidates = smfOffsets.filter(
+        o => (o.trackIndex === sourceTrackIndex || o.channel === track.channel) &&
              o.pitch === pitch &&
              Math.abs(o.startTicks - startTicks) <= 2
       );
 
+      // Prefer exact track match if multiple
+      const exactTrackCandidates = candidates.filter(o => o.trackIndex === sourceTrackIndex);
+      if (exactTrackCandidates.length > 0) {
+        candidates = exactTrackCandidates;
+      }
+
+      let rawPatchStatus: 'matched' | 'ambiguous' | 'unmatched' = 'unmatched';
       let matchedOffset: SMFNoteOffset | undefined;
-      if (offsetIndex >= 0) {
-        matchedOffset = smfOffsets.splice(offsetIndex, 1)[0];
+
+      if (candidates.length === 0) {
+        rawPatchStatus = 'unmatched';
+      } else if (candidates.length === 1) {
+        if (candidates[0].isAmbiguous) {
+          rawPatchStatus = 'ambiguous';
+        } else {
+          matchedOffset = candidates[0];
+          rawPatchStatus = 'matched';
+          const idx = smfOffsets.indexOf(matchedOffset);
+          if (idx >= 0) smfOffsets.splice(idx, 1);
+        }
+      } else {
+        // 2 or more candidates: narrow by durationTicks (+-2) and velocity (+-2)
+        const narrowed = candidates.filter(
+          c => Math.abs(c.durationTicks - durationTicks) <= 2 &&
+               Math.abs(c.velocity - velocityMidi) <= 2 &&
+               !c.isAmbiguous
+        );
+
+        if (narrowed.length === 1) {
+          matchedOffset = narrowed[0];
+          rawPatchStatus = 'matched';
+          const idx = smfOffsets.indexOf(matchedOffset);
+          if (idx >= 0) smfOffsets.splice(idx, 1);
+        } else {
+          rawPatchStatus = 'ambiguous';
+        }
       }
 
       const noteData: NoteData = {
@@ -179,8 +213,9 @@ export function parseMidiFile(input: ArrayBuffer | ArrayBufferLike | Uint8Array,
         velocity: note.velocity,
         channel: track.channel,
         originalPitch: pitch,
-        noteOnPitchByteOffset: matchedOffset?.noteOnPitchByteOffset,
-        noteOffPitchByteOffset: matchedOffset?.noteOffPitchByteOffset,
+        noteOnPitchByteOffset: rawPatchStatus === 'matched' ? matchedOffset?.noteOnPitchByteOffset : undefined,
+        noteOffPitchByteOffset: rawPatchStatus === 'matched' ? matchedOffset?.noteOffPitchByteOffset : undefined,
+        rawPatchStatus,
       };
 
       trackNotes.push(noteData);

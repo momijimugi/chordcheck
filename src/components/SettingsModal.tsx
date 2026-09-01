@@ -27,7 +27,7 @@ export const SettingsModal: React.FC = () => {
     updateAnalysisSettings({ ...preset, profile });
   };
 
-  const diag = workingMidi ? getExportDiagnosticInfo(workingMidi) : null;
+  const diag = workingMidi ? getExportDiagnosticInfo(workingMidi, workingMidi.tracks) : null;
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 select-none">
@@ -310,7 +310,7 @@ export const SettingsModal: React.FC = () => {
                   )}
                 </div>
 
-                {/* Statistics Grid */}
+                {/* Statistics Grid (Phase C / β0.3.2) */}
                 <div className="grid grid-cols-2 gap-2 bg-[#18191c] p-3 rounded-lg border border-[#2e3238]">
                   <div>
                     <span className="text-slate-400 block text-[11px]">ファイル名</span>
@@ -329,12 +329,30 @@ export const SettingsModal: React.FC = () => {
                     <span className="font-semibold text-slate-200 font-mono">{diag.totalNotes.toLocaleString()}</span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block text-[11px]">オフセット照合成功</span>
-                    <span className="font-semibold text-emerald-400 font-mono">{diag.matchedOffsetsCount.toLocaleString()} / {diag.totalNotes.toLocaleString()}</span>
+                    <span className="text-slate-400 block text-[11px]">オフセット照合成功 (Matched)</span>
+                    <span className="font-semibold text-emerald-400 font-mono">{diag.matchedNotesCount.toLocaleString()} / {diag.totalNotes.toLocaleString()}</span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block text-[11px]">テンポ / 拍子イベント数</span>
-                    <span className="font-semibold text-slate-200 font-mono">{workingMidi.tempos.length} / {workingMidi.timeSignatures.length}</span>
+                    <span className="text-slate-400 block text-[11px]">重複・曖昧ノート (Ambiguous)</span>
+                    <span className={`font-semibold font-mono ${diag.ambiguousNotesCount > 0 ? 'text-amber-400' : 'text-slate-400'}`}>
+                      {diag.ambiguousNotesCount.toLocaleString()}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[11px]">未照合ノート (Unmatched)</span>
+                    <span className={`font-semibold font-mono ${diag.unmatchedNotesCount > 0 ? 'text-rose-400' : 'text-slate-400'}`}>
+                      {diag.unmatchedNotesCount.toLocaleString()}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[11px]">変更ノート数 (Modified)</span>
+                    <span className="font-semibold text-sky-400 font-mono">
+                      {diag.modifiedNotesCount.toLocaleString()} (安全パッチ: {diag.modifiedSafePatchCount})
+                    </span>
+                  </div>
+                  <div className="col-span-2 pt-1 border-t border-[#2e3238] flex justify-between text-slate-400 text-[11px]">
+                    <span>テンポ / 拍子イベント数: <strong className="text-slate-200">{workingMidi.tempos.length} / {workingMidi.timeSignatures.length}</strong></span>
+                    <span>元SMFバイト保持: <strong className={diag.hasOriginalBytes ? 'text-emerald-400' : 'text-rose-400'}>{diag.hasOriginalBytes ? 'あり (100%)' : 'なし'}</strong></span>
                   </div>
                 </div>
               </div>

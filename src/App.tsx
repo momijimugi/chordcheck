@@ -8,6 +8,7 @@ import { TrackList } from './components/TrackList';
 import { PianoRoll } from './components/PianoRoll';
 import { Inspector } from './components/Inspector';
 import { SettingsModal } from './components/SettingsModal';
+import { ExportSafetyModal } from './components/ExportSafetyModal';
 import { DEMO_PRESETS } from './utils/demoMidi';
 import { UploadCloud, Music, Sparkles, ShieldCheck } from 'lucide-react';
 
@@ -156,6 +157,14 @@ export const MainLayout: React.FC = () => {
 
       {/* Settings Modal */}
       <SettingsModal />
+
+      {/* Export Safety Warning Modal (Phase D / β0.3.2) */}
+      <ExportSafetyModal
+        isOpen={useApp().isExportSafetyModalOpen}
+        onClose={() => useApp().setIsExportSafetyModalOpen(false)}
+        onConfirm={useApp().performExport}
+        diagnostic={useApp().exportSafetyDiag}
+      />
 
       {/* Drag & Drop Full-screen Overlay */}
       {isDragOver && (

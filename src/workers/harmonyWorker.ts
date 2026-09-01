@@ -16,9 +16,8 @@ self.onmessage = (e: MessageEvent<WorkerRequest>) => {
   };
 
   try {
-    postProgress(10, 'コード区間を準備中...');
-    postProgress(30, 'コードを推定中...');
-    postProgress(50, 'ノート関係・声部衝突を解析中...');
+    postProgress(5, '解析データを準備中...');
+    postProgress(20, '和声・ノート解析中...');
 
     const analysisResult = analyzeMidi(
       midiData as any,
@@ -26,7 +25,7 @@ self.onmessage = (e: MessageEvent<WorkerRequest>) => {
       existingSegments
     );
 
-    postProgress(90, '修正候補・統計を集計中...');
+    postProgress(90, '解析結果を整理中...');
 
     const response: WorkerResponse = {
       type: 'RESULT',

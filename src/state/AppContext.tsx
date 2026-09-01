@@ -4,7 +4,7 @@ import { AnalysisSettings, ChordCandidate, ChordSegment, ChordType, KeyContext, 
 import { MidiData, NoteData, RangePreset, TrackData, TrackRole } from '../types/midi';
 import { DEFAULT_ANALYSIS_SETTINGS, PITCH_NAMES } from '../utils/constants';
 import { parseMidiFile } from '../engine/midiParser';
-import { exportMidiFile } from '../engine/midiExporter';
+import { exportMidiFile, getExportDiagnosticInfo, ExportDiagnosticInfo } from '../engine/midiExporter';
 import { createDemoMidi, DemoCaseId } from '../utils/demoMidi';
 import { downloadMidiFile } from '../utils/download';
 import { audioSynth } from '../engine/audioSynth';
@@ -19,6 +19,10 @@ interface AppContextValue extends AppState {
   loadMidiBuffer: (buffer: ArrayBuffer, fileName: string) => void;
   loadDemo: (demoId: DemoCaseId) => void;
   exportMidi: () => void;
+  performExport: () => void;
+  isExportSafetyModalOpen: boolean;
+  setIsExportSafetyModalOpen: (open: boolean) => void;
+  exportSafetyDiag: ExportDiagnosticInfo | null;
   modifyNotePitch: (noteId: string, newPitch: number) => void;
   modifyChordSegment: (segmentId: string, root: number, type: ChordType, bass?: number) => void;
   overrideChordCandidate: (segmentId: string, candidate: ChordCandidate) => void;
@@ -227,12 +231,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [analysisSettings, runAnalysis]);
 
-  const exportMidi = useCallback(() => {
+  // Export Safety Modal state (Phase D / β0.3.2)
+  const [isExportSafetyModalOpen, setIsExportSafetyModalOpen] = useState<boolean>(false);
+  const [exportSafetyDiag, setExportSafetyDiag] = useState<ExportDiagnosticInfo | null>(null);
+
+  const performExport = useCallback(() => {
     if (!workingMidi) return;
     const bytes = exportMidiFile(workingMidi, workingMidi.tracks);
     const filename = `${workingMidi.name || 'project'}_harmony-fixed.mid`;
     downloadMidiFile(bytes, filename);
   }, [workingMidi]);
+
+  const exportMidi = useCallback(() => {
+    if (!workingMidi) return;
+    const diag = getExportDiagnosticInfo(workingMidi, workingMidi.tracks);
+    if (diag.mode === 'Tone.js Fallback') {
+      setExportSafetyDiag(diag);
+      setIsExportSafetyModalOpen(true);
+    } else {
+      performExport();
+    }
+  }, [workingMidi, performExport]);
 
   const modifyNotePitch = useCallback((noteId: string, newPitch: number) => {
     if (!workingMidi) return;
@@ -701,6 +720,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         loadMidiBuffer,
         loadDemo,
         exportMidi,
+        performExport,
+        isExportSafetyModalOpen,
+        setIsExportSafetyModalOpen,
+        exportSafetyDiag,
         modifyNotePitch,
         modifyChordSegment,
         overrideChordCandidate,

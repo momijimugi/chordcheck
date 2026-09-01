@@ -14,12 +14,18 @@ class HarmonyWorkerBridge {
   private currentRequestId: string = '';
   private currentCallbacks: WorkerAnalysisCallbacks | null = null;
   private isWorkerSupported: boolean = typeof Worker !== 'undefined';
+  public isBusy: boolean = false;
+
+  // Stored for automatic main thread fallback on runtime worker error
+  private lastMidiData: MidiData | null = null;
+  private lastSettings: AnalysisSettings | null = null;
+  private lastExistingSegments: ChordSegment[] = [];
 
   constructor() {
     this.initWorker();
   }
 
-  private initWorker() {
+  public initWorker() {
     if (!this.isWorkerSupported) return;
 
     try {
@@ -31,7 +37,7 @@ class HarmonyWorkerBridge {
       this.worker.onmessage = (e: MessageEvent<WorkerProgress | WorkerResponse>) => {
         const msg = e.data;
 
-        // Discard messages from outdated requests (Phase A / Section 8)
+        // Discard messages from outdated/cancelled requests (Phase E)
         if (msg.requestId !== this.currentRequestId) {
           return;
         }
@@ -39,6 +45,7 @@ class HarmonyWorkerBridge {
         if (msg.type === 'PROGRESS') {
           this.currentCallbacks?.onProgress?.(msg.progress, msg.stage);
         } else if (msg.type === 'RESULT') {
+          this.isBusy = false;
           if (msg.success && msg.result) {
             const analysesMap = new Map<string, NoteAnalysis>(msg.result.analyses);
             this.currentCallbacks?.onSuccess?.({
@@ -47,14 +54,15 @@ class HarmonyWorkerBridge {
               statusCounts: msg.result.statusCounts,
             });
           } else {
-            this.currentCallbacks?.onError?.(msg.error || 'Unknown analysis error');
+            console.warn('[HarmonyWorkerBridge] Worker reported error, falling back to Main Thread:', msg.error);
+            this.fallbackToMainThread(msg.error || 'Worker runtime error');
           }
         }
       };
 
       this.worker.onerror = (err) => {
-        console.warn('[HarmonyWorkerBridge] Worker error, will fall back to main thread:', err);
-        this.currentCallbacks?.onError?.(err.message || 'Worker runtime error');
+        console.warn('[HarmonyWorkerBridge] Worker uncaught error, falling back to Main Thread:', err);
+        this.fallbackToMainThread(err.message || 'Worker runtime error');
       };
     } catch (err) {
       console.warn('[HarmonyWorkerBridge] Failed to create Worker, fallback enabled:', err);
@@ -63,15 +71,70 @@ class HarmonyWorkerBridge {
     }
   }
 
+  public cancelCurrentAnalysis() {
+    if (this.worker) {
+      this.worker.terminate();
+      this.worker = null;
+    }
+    this.isBusy = false;
+    this.currentRequestId = '';
+    this.currentCallbacks = null;
+    this.initWorker();
+  }
+
+  private fallbackToMainThread(reason: string) {
+    if (!this.lastMidiData || !this.lastSettings || !this.currentCallbacks) {
+      this.currentCallbacks?.onError?.(reason);
+      this.isBusy = false;
+      return;
+    }
+
+    const callbacks = this.currentCallbacks;
+    const midi = this.lastMidiData;
+    const settings = this.lastSettings;
+    const segments = this.lastExistingSegments;
+    const reqId = this.currentRequestId;
+
+    // Reset worker
+    if (this.worker) {
+      this.worker.terminate();
+      this.worker = null;
+      this.initWorker();
+    }
+    this.isBusy = false;
+
+    callbacks.onProgress?.(20, 'Worker解析に失敗したため互換モードで解析中...');
+    setTimeout(() => {
+      if (this.currentRequestId !== reqId) return;
+      try {
+        const result = analyzeMidi(midi, settings, segments);
+        callbacks.onProgress?.(100, '解析完了 (互換モード)');
+        callbacks.onSuccess?.(result);
+      } catch (err: any) {
+        console.error('[HarmonyWorkerBridge] Main thread fallback failed:', err);
+        callbacks.onError?.(err?.message || 'Main thread analysis failed');
+      }
+    }, 0);
+  }
+
   public analyze(
     midi: MidiData,
     settings: AnalysisSettings,
     existingSegments: ChordSegment[] = [],
     callbacks: WorkerAnalysisCallbacks
   ): string {
+    // Phase E: Cancel previous analysis if worker is busy or currently running
+    if (this.isBusy || this.currentRequestId) {
+      this.cancelCurrentAnalysis();
+    }
+
     const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     this.currentRequestId = requestId;
     this.currentCallbacks = callbacks;
+    this.isBusy = true;
+    this.lastMidiData = midi;
+    this.lastSettings = settings;
+    this.lastExistingSegments = existingSegments;
 
     // Structured Clone DTO (no raw bytes or class instances)
     const dto: AnalysisMidiDTO = {
@@ -98,16 +161,18 @@ class HarmonyWorkerBridge {
       };
       this.worker.postMessage(request);
     } else {
-      // Fallback to Main Thread (Phase A / Section 9)
+      // Fallback to Main Thread
       console.warn('[HarmonyWorkerBridge] Executing analysis on Main Thread (Worker unavailable)');
       callbacks.onProgress?.(10, '和声を解析中 (Main Thread)...');
       setTimeout(() => {
         if (this.currentRequestId !== requestId) return;
         try {
           const result = analyzeMidi(midi, settings, existingSegments);
+          this.isBusy = false;
           callbacks.onProgress?.(100, '解析完了');
           callbacks.onSuccess?.(result);
         } catch (err: any) {
+          this.isBusy = false;
           callbacks.onError?.(err?.message || 'Main thread analysis failed');
         }
       }, 0);
@@ -117,11 +182,7 @@ class HarmonyWorkerBridge {
   }
 
   public terminate() {
-    if (this.worker) {
-      this.worker.terminate();
-      this.worker = null;
-      this.initWorker();
-    }
+    this.cancelCurrentAnalysis();
   }
 }
 

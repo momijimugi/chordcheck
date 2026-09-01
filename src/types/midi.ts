@@ -57,6 +57,7 @@ export interface NoteData {
   originalPitch: number; // for reset tracking
   noteOnPitchByteOffset?: number; // Exact byte index in raw SMF
   noteOffPitchByteOffset?: number; // Exact byte index in raw SMF
+  rawPatchStatus?: 'matched' | 'ambiguous' | 'unmatched'; // β0.3.2 SMF offset matching status
 }
 
 export interface TimeSignatureInfo {
